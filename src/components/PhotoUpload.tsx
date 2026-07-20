@@ -15,6 +15,7 @@ export default function PhotoUpload({ reportKey, pathnames, onChange }: Props) {
   const galleryRef = useRef<HTMLInputElement>(null)
 
   const handleFiles = async (files: FileList | null) => {
+    console.log('[PhotoUpload] handleFiles called, files:', files?.length)
     if (!files || !files.length) return
     setUploading(true)
     setError('')
@@ -23,8 +24,10 @@ export default function PhotoUpload({ reportKey, pathnames, onChange }: Props) {
       // the axios interceptor in lib/api.ts, so the auth header has to be passed explicitly
       // or requireInstallerOrAdmin rejects the token request with a 401.
       const headers = await getAuthHeaders()
+      console.log('[PhotoUpload] got auth headers:', Object.keys(headers))
       const newPathnames: string[] = []
       for (const file of Array.from(files)) {
+        console.log('[PhotoUpload] uploading', file.name, file.type, file.size)
         const pathname = `install/${reportKey}/${Date.now()}-${file.name}`
         const blob = await upload(pathname, file, {
           access: 'private',
@@ -32,10 +35,12 @@ export default function PhotoUpload({ reportKey, pathnames, onChange }: Props) {
           multipart: true,
           headers,
         })
+        console.log('[PhotoUpload] uploaded ok:', blob.pathname)
         newPathnames.push(blob.pathname)
       }
       onChange([...pathnames, ...newPathnames])
     } catch (e: any) {
+      console.error('[PhotoUpload] upload failed:', e)
       setError(e.message || 'Photo upload failed')
     } finally {
       setUploading(false)
