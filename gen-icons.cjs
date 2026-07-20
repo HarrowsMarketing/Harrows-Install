@@ -30,7 +30,7 @@ async function main() {
   const cropped = sharp(SRC).extract({ left: minX, top: minY, width: maxX - minX, height: maxY - minY })
 
   async function makeIcon(size, outFile) {
-    const padding = Math.round(size * 0.1)
+    const padding = Math.round(size * 0.27)
     const inner = size - padding * 2
     await sharp({ create: { width: size, height: size, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } } })
       .composite([{
