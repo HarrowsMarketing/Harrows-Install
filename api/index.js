@@ -226,6 +226,23 @@ app.delete('/api/install/jobs/:id', requireAdmin, async (req, res) => {
   }
 })
 
+// ── TEMP DEBUG — remove before committing further ────────────────────────────────
+app.get('/api/_debug_supabase', async (req, res) => {
+  try {
+    const r = await axios.get(sb('installers', 'limit=1'), { headers: sbH() })
+    res.json({ ok: true, supabaseUrl: SUPABASE_URL, hasKey: !!SUPABASE_SERVICE_KEY, status: r.status, data: r.data })
+  } catch (e) {
+    res.json({
+      ok: false,
+      supabaseUrl: SUPABASE_URL,
+      hasKey: !!SUPABASE_SERVICE_KEY,
+      status: e?.response?.status,
+      data: e?.response?.data,
+      message: e.message,
+    })
+  }
+})
+
 // ── People (installer roster) — admin only ──────────────────────────────────────
 
 app.get('/api/install/people', requireAdmin, async (req, res) => {
