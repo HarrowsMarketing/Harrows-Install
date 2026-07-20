@@ -2,6 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import axios from 'axios'
 import crypto from 'crypto'
+import Anthropic from '@anthropic-ai/sdk'
 import { list, issueSignedToken, presignUrl } from '@vercel/blob'
 import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client'
 
@@ -45,6 +46,24 @@ async function setConfig(key, value, updatedBy = '') {
 
 const isUuid = s => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
 const isValidPin = s => typeof s === 'string' && /^\d{6}$/.test(s)
+
+// ── Job card scan (Claude vision extraction) ──────────────────────────────────
+
+const anthropic = new Anthropic()
+
+const JOB_CARD_FIELDS = [
+  'jobNumber', 'projectName', 'address',
+  'billingCompany', 'invoiceTo', 'invoicePhone', 'invoiceEmail',
+  'pmName', 'pmPhone', 'pmEmail',
+  'salespersonName', 'salespersonEmail',
+]
+
+const JOB_CARD_SCHEMA = {
+  type: 'object',
+  properties: Object.fromEntries(JOB_CARD_FIELDS.map(f => [f, { type: 'string' }])),
+  required: JOB_CARD_FIELDS,
+  additionalProperties: false,
+}
 
 // ── Clerk auth (admin/office shell) — same verification pattern as Harrows-dashboard's ──
 // requireDept(dept), reusing the same Clerk instance/keys so office staff use their
@@ -185,13 +204,75 @@ app.get('/api/install/jobs', requireInstallerOrAdmin, async (req, res) => {
   }
 })
 
+// Scans an uploaded photo/PDF of a physical job card and extracts fields to pre-fill
+// the add/edit form — the user still reviews and saves, nothing is written here.
+app.post('/api/install/jobs/scan', requireInstallerOrAdmin, async (req, res) => {
+  try {
+    const { mediaType, data } = req.body || {}
+    if (!mediaType || !data) return res.status(400).json({ error: 'mediaType and data are required' })
+    const isPdf = mediaType === 'application/pdf'
+    if (!isPdf && !mediaType.startsWith('image/')) {
+      return res.status(400).json({ error: 'mediaType must be an image/* type or application/pdf' })
+    }
+
+    const response = await anthropic.messages.create({
+      model: 'claude-opus-4-8',
+      max_tokens: 1024,
+      output_config: { format: { type: 'json_schema', schema: JOB_CARD_SCHEMA } },
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: isPdf ? 'document' : 'image',
+            source: { type: 'base64', media_type: mediaType, data },
+          },
+          {
+            type: 'text',
+            text: 'This is a job card document for a furniture install job. Extract: job number, project name, site address, billing company name, invoice-to contact name, invoice-to phone, invoice-to email, project manager name, project manager phone, project manager email, salesperson name, salesperson email. Use an empty string for any field not present on the document.',
+          },
+        ],
+      }],
+    })
+
+    if (response.stop_reason === 'refusal') {
+      return res.status(422).json({ error: 'Could not read this document' })
+    }
+    const textBlock = response.content.find(b => b.type === 'text')
+    const fields = JSON.parse(textBlock?.text || '{}')
+    res.json({ fields })
+  } catch (e) {
+    console.error('job card scan error', e.message)
+    if (e instanceof Anthropic.BadRequestError) {
+      return res.status(400).json({ error: 'Could not read this file — try a clearer photo' })
+    }
+    res.status(500).json({ error: 'Scan failed, please enter details manually' })
+  }
+})
+
+// camelCase (frontend/API) -> snake_case (db column) for the optional job card detail fields
+const JOB_CARD_DETAIL_COLUMNS = {
+  billingCompany: 'billing_company',
+  invoiceTo: 'invoice_to',
+  invoicePhone: 'invoice_phone',
+  invoiceEmail: 'invoice_email',
+  pmName: 'pm_name',
+  pmPhone: 'pm_phone',
+  pmEmail: 'pm_email',
+  salespersonName: 'salesperson_name',
+  salespersonEmail: 'salesperson_email',
+}
+
 app.post('/api/install/jobs', requireInstallerOrAdmin, async (req, res) => {
   try {
     const { jobNumber, projectName, address } = req.body || {}
     if (!jobNumber || !projectName) return res.status(400).json({ error: 'jobNumber and projectName are required' })
     const createdBy = req.installer?.name || req.clerkUser?.id || null
+    const detail = {}
+    for (const [camel, column] of Object.entries(JOB_CARD_DETAIL_COLUMNS)) {
+      detail[column] = req.body[camel] || null
+    }
     const r = await axios.post(sb('job_cards'), {
-      job_number: jobNumber, project_name: projectName, address: address || null, created_by: createdBy,
+      job_number: jobNumber, project_name: projectName, address: address || null, created_by: createdBy, ...detail,
     }, { headers: sbH({ Prefer: 'return=representation' }) })
     res.json({ job: r.data[0] })
   } catch (e) {
@@ -208,6 +289,9 @@ app.patch('/api/install/jobs/:id', requireAdmin, async (req, res) => {
     if (jobNumber !== undefined) patch.job_number = jobNumber
     if (projectName !== undefined) patch.project_name = projectName
     if (address !== undefined) patch.address = address
+    for (const [camel, column] of Object.entries(JOB_CARD_DETAIL_COLUMNS)) {
+      if (req.body[camel] !== undefined) patch[column] = req.body[camel] || null
+    }
     await axios.patch(sb('job_cards', `id=eq.${req.params.id}`), patch, { headers: sbH() })
     res.json({ ok: true })
   } catch (e) {

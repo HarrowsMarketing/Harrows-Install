@@ -24,6 +24,7 @@
     "vite": "^8.1.1"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.3",
     "@clerk/clerk-react": "^5.61.8",
     "@vercel/blob": "^2.4.0",
     "axios": "^1.16.1",

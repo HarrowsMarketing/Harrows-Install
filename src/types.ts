@@ -3,8 +3,32 @@ export interface JobCard {
   job_number: string
   project_name: string
   address: string | null
+  billing_company: string | null
+  invoice_to: string | null
+  invoice_phone: string | null
+  invoice_email: string | null
+  pm_name: string | null
+  pm_phone: string | null
+  pm_email: string | null
+  salesperson_name: string | null
+  salesperson_email: string | null
   created_at: string
   created_by: string | null
+}
+
+export interface JobCardScanFields {
+  jobNumber: string
+  projectName: string
+  address: string
+  billingCompany: string
+  invoiceTo: string
+  invoicePhone: string
+  invoiceEmail: string
+  pmName: string
+  pmPhone: string
+  pmEmail: string
+  salespersonName: string
+  salespersonEmail: string
 }
 
 export interface Installer {

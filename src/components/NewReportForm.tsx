@@ -93,6 +93,11 @@ export default function NewReportForm({ installer, visibleFields, defectsNoticeT
 
   return (
     <div className="space-y-4">
+      <div className="rounded-xl overflow-hidden bg-gradient-to-br from-[#1E293B] to-[#334155] px-5 py-6">
+        <p className="text-xs font-semibold uppercase tracking-wide text-harrows-yellow">Harrows Install Team</p>
+        <p className="text-lg font-bold text-white mt-1">New install report</p>
+      </div>
+
       <p className="text-sm text-gray-500">Fill in today's install, then submit to file it and draft the client email.</p>
 
       <section className="bg-white border border-gray-200 rounded-xl p-4">
