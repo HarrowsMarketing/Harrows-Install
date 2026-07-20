@@ -44,6 +44,7 @@ async function setConfig(key, value, updatedBy = '') {
 }
 
 const isUuid = s => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+const isValidPin = s => typeof s === 'string' && /^\d{6}$/.test(s)
 
 // ── Clerk auth (admin/office shell) — same verification pattern as Harrows-dashboard's ──
 // requireDept(dept), reusing the same Clerk instance/keys so office staff use their
@@ -242,6 +243,7 @@ app.post('/api/install/people', requireAdmin, async (req, res) => {
   try {
     const { name, email, phone, pin, role, adminAccess } = req.body || {}
     if (!name || !pin) return res.status(400).json({ error: 'name and pin are required' })
+    if (!isValidPin(String(pin))) return res.status(400).json({ error: 'PIN must be exactly 6 digits' })
     const r = await axios.post(sb('installers'), {
       name, email: email || null, phone: phone || null, pin: String(pin),
       role: role === 'team_leader' ? 'team_leader' : 'installer',
@@ -262,7 +264,10 @@ app.patch('/api/install/people/:id', requireAdmin, async (req, res) => {
     if (name !== undefined) patch.name = name
     if (email !== undefined) patch.email = email
     if (phone !== undefined) patch.phone = phone
-    if (pin !== undefined) patch.pin = String(pin)
+    if (pin !== undefined) {
+      if (!isValidPin(String(pin))) return res.status(400).json({ error: 'PIN must be exactly 6 digits' })
+      patch.pin = String(pin)
+    }
     if (role !== undefined) patch.role = role === 'team_leader' ? 'team_leader' : 'installer'
     if (adminAccess !== undefined) patch.admin_access = !!adminAccess
     await axios.patch(sb('installers', `id=eq.${req.params.id}`), patch, { headers: sbH() })

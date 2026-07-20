@@ -40,8 +40,9 @@ function PinEntry({ onSignedIn }: { onSignedIn: (installer: InstallerInfo) => vo
           inputMode="numeric"
           autoFocus
           value={pin}
-          onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
+          onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
           onKeyDown={e => e.key === 'Enter' && submit()}
+          maxLength={6}
           placeholder="PIN"
           className="w-full text-center text-2xl tracking-[0.5em] border border-gray-200 rounded-xl px-4 py-3 mb-3 focus:outline-none focus:ring-2 focus:ring-harrows-yellow/40"
         />

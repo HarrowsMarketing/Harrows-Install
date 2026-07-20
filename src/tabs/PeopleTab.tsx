@@ -41,6 +41,7 @@ export default function PeopleTab() {
 
   const save = async () => {
     if (!form.name.trim() || !form.pin.trim()) return setError('Name and PIN are required')
+    if (!/^\d{6}$/.test(form.pin)) return setError('PIN must be exactly 6 digits')
     setSaving(true)
     setError('')
     try {
@@ -110,7 +111,7 @@ export default function PeopleTab() {
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
           <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="Phone (optional)"
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-          <input value={form.pin} onChange={e => setForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, '') }))} placeholder="PIN" inputMode="numeric" maxLength={6}
+          <input value={form.pin} onChange={e => setForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, '').slice(0, 6) }))} placeholder="6-digit PIN" inputMode="numeric" maxLength={6}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono" />
           <div className="flex gap-2">
             {(['installer', 'team_leader'] as const).map(r => (
