@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import type { EodConfig, EodReport } from '../types'
-import { openReportEmailDraft } from '../utils/emailDraft'
+import { shareOrDraftReportEmail } from '../utils/emailDraft'
 import { generateReportPDF } from '../utils/generateReportPDF'
 
 interface Props {
@@ -16,6 +16,7 @@ interface Props {
 export default function ReportDetailModal({ report, config, onClose, onMarkEmailed, canDelete, onDelete }: Props) {
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({})
   const [generatingPdf, setGeneratingPdf] = useState(false)
+  const [sendingEmail, setSendingEmail] = useState(false)
 
   useEffect(() => {
     report.photos?.forEach(p => {
@@ -25,8 +26,9 @@ export default function ReportDetailModal({ report, config, onClose, onMarkEmail
     })
   }, [report])
 
-  const draftEmail = () => {
-    openReportEmailDraft(report, config)
+  const draftEmail = async () => {
+    setSendingEmail(true)
+    try { await shareOrDraftReportEmail(report, config) } finally { setSendingEmail(false) }
   }
 
   const printPdf = async () => {
@@ -76,8 +78,8 @@ export default function ReportDetailModal({ report, config, onClose, onMarkEmail
         </div>
 
         <div className="px-5 py-4 border-t border-gray-100 flex flex-wrap gap-2">
-          <button onClick={draftEmail} className="flex-1 px-3 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors">
-            Draft email
+          <button onClick={draftEmail} disabled={sendingEmail} className="flex-1 px-3 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors">
+            {sendingEmail ? 'Preparing...' : 'Send as PDF'}
           </button>
           <button onClick={printPdf} disabled={generatingPdf} className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors">
             {generatingPdf ? 'Generating...' : 'Print as PDF'}

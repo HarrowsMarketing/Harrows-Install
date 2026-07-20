@@ -3,7 +3,7 @@ import axios from 'axios'
 import type { EodReport, JobCard, VisibleFields } from '../types'
 import type { InstallerInfo } from '../utils/installerSession'
 import PhotoUpload from './PhotoUpload'
-import { openReportEmailDraft } from '../utils/emailDraft'
+import { shareOrDraftReportEmail } from '../utils/emailDraft'
 
 function todayStr() {
   return new Date().toISOString().split('T')[0]
@@ -68,8 +68,9 @@ export default function NewReportForm({ installer, visibleFields, defectsNoticeT
         additionalNotes,
         photoPathnames: visibleFields.photos ? photoPathnames : [],
       })
-      const report: EodReport = { ...r.data.report, job, installer: { id: installer.id, name: installer.name }, photos: [] }
-      openReportEmailDraft(report, { defectsNoticeText, emailSignoff: 'Harrows Install Team', internalCcAddress: '' })
+      const reportPhotos = visibleFields.photos ? photoPathnames.map(p => ({ id: p, blob_pathname: p })) : []
+      const report: EodReport = { ...r.data.report, job, installer: { id: installer.id, name: installer.name }, photos: reportPhotos }
+      await shareOrDraftReportEmail(report, { defectsNoticeText, emailSignoff: 'Harrows Install Team', internalCcAddress: '' })
       setDone(true)
       onSubmitted()
     } catch (e: any) {
@@ -83,7 +84,7 @@ export default function NewReportForm({ installer, visibleFields, defectsNoticeT
     return (
       <div className="bg-white border border-gray-200 rounded-xl p-6 text-center">
         <p className="text-sm font-semibold text-gray-900 mb-1">Report filed</p>
-        <p className="text-xs text-gray-500 mb-4">Your email client should have opened with a draft — review it and send.</p>
+        <p className="text-xs text-gray-500 mb-4">The report PDF should have opened in your share sheet (or downloaded, with an email draft) — send it to the client from there.</p>
         <button onClick={reset} className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors">
           New report
         </button>

@@ -44,14 +44,28 @@ function statCards(doc: jsPDF, y: number, cards: { label: string; value: string 
   doc.setTextColor(0)
   return y + h + 6
 }
-function photoImage(doc: jsPDF, imgData: string, y: number, h = 55): number {
+function photoImage(doc: jsPDF, imgData: string, y: number, maxH = 90): number {
+  // Fit the image within the box preserving its own aspect ratio instead of stretching
+  // it to a fixed box — a portrait phone photo forced into a wide fixed box came out
+  // squished.
+  const maxW = CW - 4
+  let w = maxW, h = maxH
+  try {
+    const props = doc.getImageProperties(imgData)
+    const scale = Math.min(maxW / props.width, maxH / props.height)
+    w = props.width * scale
+    h = props.height * scale
+  } catch { /* fall through with the box maxed out if properties can't be read */ }
+
+  const boxH = h + 4
   doc.setFillColor(255, 255, 255)
   doc.setDrawColor(226, 232, 240)
-  doc.roundedRect(M, y, CW, h, 2, 2, 'FD')
+  doc.roundedRect(M, y, CW, boxH, 2, 2, 'FD')
   doc.setDrawColor(0)
+  const x = M + (CW - w) / 2
   const format = imgData.startsWith('data:image/png') ? 'PNG' : 'JPEG'
-  try { doc.addImage(imgData, format, M + 2, y + 2, CW - 4, h - 4) } catch { /* skip an image that fails to decode */ }
-  return y + h + 6
+  try { doc.addImage(imgData, format, x, y + 2, w, h) } catch { /* skip an image that fails to decode */ }
+  return y + boxH + 6
 }
 
 async function fetchAsDataUrl(pathname: string): Promise<string | null> {
@@ -70,7 +84,11 @@ async function fetchAsDataUrl(pathname: string): Promise<string | null> {
   }
 }
 
-export async function generateReportPDF(report: EodReport) {
+function pdfFilename(report: EodReport) {
+  return `eod-${report.job?.job_number || 'report'}-${report.report_date}.pdf`
+}
+
+async function buildReportPDF(report: EodReport): Promise<jsPDF> {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const dateStr = new Date(report.report_date + 'T00:00:00').toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 
@@ -137,7 +155,7 @@ export async function generateReportPDF(report: EodReport) {
 
   if (report.photos?.length) {
     for (const photo of report.photos) {
-      y = checkPage(doc, y, 60)
+      y = checkPage(doc, y, 100)
       const dataUrl = await fetchAsDataUrl(photo.blob_pathname)
       if (dataUrl) y = photoImage(doc, dataUrl, y)
     }
@@ -150,5 +168,16 @@ export async function generateReportPDF(report: EodReport) {
     doc.text(`Harrows Install · installs.harrows.co.nz · Page ${i} of ${pages}`, PW / 2, PH - 7, { align: 'center' })
   }
 
-  doc.save(`eod-${report.job?.job_number || 'report'}-${report.report_date}.pdf`)
+  return doc
+}
+
+export async function generateReportPDF(report: EodReport) {
+  const doc = await buildReportPDF(report)
+  doc.save(pdfFilename(report))
+}
+
+export async function getReportPDFFile(report: EodReport): Promise<File> {
+  const doc = await buildReportPDF(report)
+  const blob = doc.output('blob') as Blob
+  return new File([blob], pdfFilename(report), { type: 'application/pdf' })
 }
