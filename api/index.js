@@ -479,21 +479,6 @@ app.delete('/api/install/reports/:id', requireAdmin, async (req, res) => {
   }
 })
 
-// ── TEMP DEBUG — remove before committing further ────────────────────────────────
-app.get('/api/_debug_blob', async (req, res) => {
-  try {
-    const clientToken = await generateClientTokenFromReadWriteToken({
-      pathname: 'install/_debug/test.jpg',
-      allowedContentTypes: ['image/jpeg'],
-      addRandomSuffix: true,
-      validUntil: Date.now() + 60 * 1000,
-    })
-    res.json({ ok: true, hasToken: !!clientToken, hasEnvVar: !!process.env.BLOB_READ_WRITE_TOKEN })
-  } catch (e) {
-    res.json({ ok: false, message: e.message, hasEnvVar: !!process.env.BLOB_READ_WRITE_TOKEN })
-  }
-})
-
 // ── Photos (client-direct-to-Blob upload, same pattern as newsletter upload) ────
 
 app.post('/api/install/photos/upload-token', requireInstallerOrAdmin, async (req, res) => {

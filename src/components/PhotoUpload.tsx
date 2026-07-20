@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { upload } from '@vercel/blob/client'
+import { getAuthHeaders } from '../lib/api'
 
 interface Props {
   reportKey: string // a client-generated id used to namespace this report's photo pathnames before the report itself has an id
@@ -18,6 +19,10 @@ export default function PhotoUpload({ reportKey, pathnames, onChange }: Props) {
     setUploading(true)
     setError('')
     try {
+      // upload() makes its own fetch() calls to handleUploadUrl — it never goes through
+      // the axios interceptor in lib/api.ts, so the auth header has to be passed explicitly
+      // or requireInstallerOrAdmin rejects the token request with a 401.
+      const headers = await getAuthHeaders()
       const newPathnames: string[] = []
       for (const file of Array.from(files)) {
         const pathname = `install/${reportKey}/${Date.now()}-${file.name}`
@@ -25,6 +30,7 @@ export default function PhotoUpload({ reportKey, pathnames, onChange }: Props) {
           access: 'private',
           handleUploadUrl: '/api/install/photos/upload-token',
           multipart: true,
+          headers,
         })
         newPathnames.push(blob.pathname)
       }
