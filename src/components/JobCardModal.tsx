@@ -21,16 +21,43 @@ function fromJob(job: JobCard): Form {
   }
 }
 
-function fileToBase64(file: File): Promise<{ mediaType: string; data: string }> {
+const MAX_IMAGE_EDGE = 1600 // phone camera photos are easily 3000-4000px+ and 5-10MB — downscale before sending
+
+function readAsDataUrl(file: File | Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result as string
-      resolve({ mediaType: file.type, data: result.split(',')[1] })
-    }
+    reader.onload = () => resolve(reader.result as string)
     reader.onerror = reject
     reader.readAsDataURL(file)
   })
+}
+
+// Downscales+re-encodes photos client-side so a full-res phone camera shot doesn't blow
+// past the request body limit or slow the scan down. PDFs pass through unchanged.
+async function fileToBase64(file: File): Promise<{ mediaType: string; data: string }> {
+  if (!file.type.startsWith('image/')) {
+    const dataUrl = await readAsDataUrl(file)
+    return { mediaType: file.type, data: dataUrl.split(',')[1] }
+  }
+
+  const dataUrl = await readAsDataUrl(file)
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image()
+    el.onload = () => resolve(el)
+    el.onerror = reject
+    el.src = dataUrl
+  })
+
+  const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(img.width, img.height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(img.width * scale)
+  canvas.height = Math.round(img.height * scale)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return { mediaType: file.type, data: dataUrl.split(',')[1] }
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+  const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.85)
+  return { mediaType: 'image/jpeg', data: resizedDataUrl.split(',')[1] }
 }
 
 interface Props {
