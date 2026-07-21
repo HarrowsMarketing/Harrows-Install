@@ -23,21 +23,15 @@ const COMPANY_LINES = [
   'GST NO. 114-038-954',
 ]
 
-// Mimics the tracked-out letter spacing on the job card's title text without depending
-// on jsPDF version-specific charSpace support.
-function letterSpace(text: string) {
-  return text.split('').join(' ')
-}
-
 function checkPage(doc: jsPDF, y: number, needed = 30): number {
   if (y + needed > PH - 16) { doc.addPage(); return 22 }
   return y
 }
 function sectionLabel(doc: jsPDF, text: string, y: number): number {
-  doc.setFont('helvetica', 'bold').setFontSize(7.5).setTextColor(...MUTED)
-  doc.text(text.toUpperCase(), M, y)
+  doc.setFont('helvetica', 'bold').setFontSize(9).setTextColor(...INK)
+  doc.text(text.toUpperCase(), M, y, { charSpace: 0.3 })
   doc.setTextColor(0)
-  return y + 4
+  return y + 4.5
 }
 function bodyText(doc: jsPDF, text: string, y: number): number {
   doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(...INK)
@@ -135,8 +129,8 @@ function pdfFilename(report: EodReport) {
 }
 
 async function drawHeader(doc: jsPDF, report: EodReport): Promise<number> {
-  doc.setFont('helvetica', 'normal').setFontSize(15).setTextColor(0)
-  doc.text(letterSpace('EOD Report'), M, 16)
+  doc.setFont('helvetica', 'normal').setFontSize(16).setTextColor(0)
+  doc.text('EOD Report', M, 16, { charSpace: 0.7 })
 
   const logoData = await fetchAsDataUrl(LOGO_SRC)
   const logoW = 42
