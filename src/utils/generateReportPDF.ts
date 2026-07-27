@@ -100,6 +100,43 @@ function photoImage(doc: jsPDF, imgData: string, y: number, maxH = 90): number {
   return y + boxH + 6
 }
 
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = src
+  })
+}
+
+// jsPDF's own path-clipping API is finicky across versions, so the circular crop is done
+// on a <canvas> first (same approach as resizeImage.ts) — the result is a plain PNG with
+// transparent corners that addImage() can drop straight onto the page, no PDF-level clip needed.
+async function circularAvatarDataUrl(dataUrl: string, size = 96): Promise<string | null> {
+  try {
+    const img = await loadImage(dataUrl)
+    const canvas = document.createElement('canvas')
+    canvas.width = size
+    canvas.height = size
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.beginPath()
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2)
+    ctx.closePath()
+    ctx.clip()
+    const scale = Math.max(size / img.width, size / img.height) // cover-fit, center-cropped
+    const w = img.width * scale, h = img.height * scale
+    ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h)
+    return canvas.toDataURL('image/png')
+  } catch {
+    return null
+  }
+}
+
+function drawAvatar(doc: jsPDF, imgData: string, cx: number, cy: number, r: number) {
+  try { doc.addImage(imgData, 'PNG', cx - r, cy - r, r * 2, r * 2) } catch { /* skip an image that fails to decode */ }
+}
+
 async function fetchAsDataUrl(url: string): Promise<string | null> {
   try {
     const resp = await fetch(url)
@@ -175,6 +212,11 @@ async function buildReportPDF(report: EodReport): Promise<jsPDF> {
     { label: 'Work Completed', value: `${report.percent_complete}%` },
     { label: 'Emailed', value: report.email_sent ? 'Yes' : 'No' },
   ])
+  if (report.installer?.photo_pathname) {
+    const raw = await fetchPhotoAsDataUrl(report.installer.photo_pathname)
+    const avatar = raw && await circularAvatarDataUrl(raw)
+    if (avatar) drawAvatar(doc, avatar, FIELD_COL_X - 7, y - 1.3, 3.2)
+  }
   y = Math.max(leftEnd, rightEnd) + 6
   doc.setDrawColor(...LINE).setLineWidth(0.2)
   doc.line(M, y, PW - M, y)

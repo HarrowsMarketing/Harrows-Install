@@ -64,7 +64,7 @@ export interface EodReport {
   email_sent_at: string | null
   created_at: string
   job: Pick<JobCard, 'id' | 'job_number' | 'project_name' | 'address'> | null
-  installer: Pick<Installer, 'id' | 'name'> | null
+  installer: Pick<Installer, 'id' | 'name' | 'photo_pathname'> | null
   photos: ReportPhoto[]
 }
 

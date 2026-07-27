@@ -104,6 +104,12 @@ function requireDept(dept) {
 
 const requireAdmin = requireDept('install')
 
+function clerkDisplayName(user) {
+  if (!user) return null
+  const name = [user.first_name, user.last_name].filter(Boolean).join(' ').trim()
+  return name || user.email_addresses?.[0]?.email_address || null
+}
+
 // ── Installer PIN auth — no Clerk account, a short-lived HMAC-signed session token ──
 // minted on PIN login and carried by the installer's phone in localStorage. Distinct
 // from a Clerk JWT (3 dot-separated parts) by having exactly 2 parts: payload.signature.
@@ -303,7 +309,7 @@ app.post('/api/install/jobs', requireInstallerOrAdmin, async (req, res) => {
   try {
     const { jobNumber, projectName, address } = req.body || {}
     if (!jobNumber || !projectName) return res.status(400).json({ error: 'jobNumber and projectName are required' })
-    const createdBy = req.installer?.name || req.clerkUser?.id || null
+    const createdBy = req.installer?.name || clerkDisplayName(req.clerkUser) || null
     const detail = {}
     for (const [camel, column] of Object.entries(JOB_CARD_DETAIL_COLUMNS)) {
       detail[column] = req.body[camel] || null
@@ -412,7 +418,7 @@ app.delete('/api/install/people/:id', requireAdmin, async (req, res) => {
 
 // ── Reports ──────────────────────────────────────────────────────────────────
 
-const REPORT_SELECT = 'select=*,job:job_cards(id,job_number,project_name,address),installer:installers(id,name),photos:eod_report_photos(id,blob_pathname)'
+const REPORT_SELECT = 'select=*,job:job_cards(id,job_number,project_name,address),installer:installers(id,name,photo_pathname),photos:eod_report_photos(id,blob_pathname)'
 
 app.get('/api/install/reports', requireInstallerOrAdmin, async (req, res) => {
   try {
