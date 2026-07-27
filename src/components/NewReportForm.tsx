@@ -69,7 +69,7 @@ export default function NewReportForm({ installer, visibleFields, defectsNoticeT
         photoPathnames: visibleFields.photos ? photoPathnames : [],
       })
       const reportPhotos = visibleFields.photos ? photoPathnames.map(p => ({ id: p, blob_pathname: p })) : []
-      const report: EodReport = { ...r.data.report, job, installer: { id: installer.id, name: installer.name }, photos: reportPhotos }
+      const report: EodReport = { ...r.data.report, job, installer: { id: installer.id, name: installer.name, photo_pathname: installer.photoPathname }, photos: reportPhotos }
       await shareOrDraftReportEmail(report, { defectsNoticeText, emailSignoff: 'Harrows Install Team', internalCcAddress: '' })
       setDone(true)
       onSubmitted()
