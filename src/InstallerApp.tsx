@@ -5,6 +5,7 @@ import type { VisibleFields } from './types'
 import NewReportForm from './components/NewReportForm'
 import InstallerJobCards from './components/InstallerJobCards'
 import InstallerReportsView from './components/InstallerReportsView'
+import MyProfileModal from './components/MyProfileModal'
 
 const DEFAULT_VISIBLE_FIELDS: VisibleFields = { products: true, issues_solutions: true, photos: true }
 
@@ -66,6 +67,7 @@ export default function InstallerApp() {
   const [visibleFields, setVisibleFields] = useState<VisibleFields>(DEFAULT_VISIBLE_FIELDS)
   const [defectsNoticeText, setDefectsNoticeText] = useState('')
   const [reportsRefreshKey, setReportsRefreshKey] = useState(0)
+  const [showProfile, setShowProfile] = useState(false)
 
   useEffect(() => {
     if (!installer) return
@@ -91,7 +93,10 @@ export default function InstallerApp() {
             <p className="text-sm font-bold tracking-wide">HARROWS</p>
             <p className="text-xs text-gray-400">Signed in as {installer.name}</p>
           </div>
-          <button onClick={signOut} className="text-xs text-gray-300 hover:text-white transition-colors">Sign out</button>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setShowProfile(true)} className="text-xs text-gray-300 hover:text-white transition-colors">My Profile</button>
+            <button onClick={signOut} className="text-xs text-gray-300 hover:text-white transition-colors">Sign out</button>
+          </div>
         </div>
         <nav className="px-4 flex gap-1 border-t border-white/10 overflow-x-auto">
           {TABS.map(t => (
@@ -117,6 +122,14 @@ export default function InstallerApp() {
         {tab === 'Job Cards' && <InstallerJobCards />}
         {tab === 'My Reports' && <InstallerReportsView refreshKey={reportsRefreshKey} />}
       </main>
+
+      {showProfile && (
+        <MyProfileModal
+          installer={installer}
+          onClose={() => setShowProfile(false)}
+          onUpdated={setInstaller}
+        />
+      )}
     </div>
   )
 }

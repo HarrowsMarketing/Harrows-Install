@@ -6,6 +6,8 @@ export interface InstallerInfo {
   name: string
   role: 'installer' | 'team_leader'
   adminAccess: boolean
+  phone: string | null
+  photoPathname: string | null
 }
 
 export function setInstallerSession(token: string, installer: InstallerInfo) {

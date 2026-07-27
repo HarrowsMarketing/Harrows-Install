@@ -179,9 +179,46 @@ app.post('/api/install/pin-login', async (req, res) => {
     if (!installer) return res.status(401).json({ error: 'Incorrect PIN' })
     const token = signInstallerToken(installer)
     await logSignin(installer)
-    res.json({ token, installer: { id: installer.id, name: installer.name, role: installer.role, adminAccess: installer.admin_access } })
+    res.json({ token, installer: {
+      id: installer.id, name: installer.name, role: installer.role, adminAccess: installer.admin_access,
+      phone: installer.phone, photoPathname: installer.photo_pathname,
+    } })
   } catch (e) {
     console.error('pin-login error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── Installer self-service profile — name/phone/photo only, no PIN/role/admin_access ──
+// (those stay admin-only via /api/install/people/:id). Any installer session can edit
+// their own record this way, regardless of admin_access.
+
+app.get('/api/install/me', requireInstallerSession, async (req, res) => {
+  try {
+    const r = await axios.get(sb('installers', `id=eq.${req.installer.id}&limit=1`), { headers: sbH() })
+    const installer = r.data?.[0]
+    if (!installer) return res.status(404).json({ error: 'Not found' })
+    res.json({ installer })
+  } catch (e) {
+    console.error('me get error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.patch('/api/install/me', requireInstallerSession, async (req, res) => {
+  try {
+    const { name, phone, photoPathname } = req.body || {}
+    const patch = {}
+    if (name !== undefined) {
+      if (!String(name).trim()) return res.status(400).json({ error: 'Name is required' })
+      patch.name = String(name).trim()
+    }
+    if (phone !== undefined) patch.phone = phone || null
+    if (photoPathname !== undefined) patch.photo_pathname = photoPathname || null
+    await axios.patch(sb('installers', `id=eq.${req.installer.id}`), patch, { headers: sbH() })
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('me update error', e.message)
     res.status(500).json({ error: e.message })
   }
 })

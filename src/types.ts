@@ -39,6 +39,7 @@ export interface Installer {
   pin: string
   role: 'installer' | 'team_leader'
   admin_access: boolean
+  photo_pathname: string | null
   created_at: string
 }
 

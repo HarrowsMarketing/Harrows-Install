@@ -4,8 +4,13 @@ import type { Installer } from '../types'
 
 const emptyForm = { name: '', email: '', phone: '', pin: '', role: 'installer' as 'installer' | 'team_leader', adminAccess: false }
 
+function initials(name: string) {
+  return name.trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() || '').join('')
+}
+
 export default function PeopleTab() {
   const [people, setPeople] = useState<Installer[]>([])
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -26,6 +31,15 @@ export default function PeopleTab() {
   }
 
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    people.forEach(p => {
+      if (!p.photo_pathname || photoUrls[p.id]) return
+      axios.get('/api/install/photos/url', { params: { pathname: p.photo_pathname } })
+        .then(r => setPhotoUrls(prev => ({ ...prev, [p.id]: r.data.url })))
+        .catch(() => {})
+    })
+  }, [people])
 
   const startEdit = (p: Installer) => {
     setEditingId(p.id)
@@ -85,7 +99,11 @@ export default function PeopleTab() {
           {people.map(p => (
             <button key={p.id} onClick={() => startEdit(p)} className="w-full text-left bg-white border border-gray-200 rounded-lg px-4 py-3 flex items-center justify-between hover:border-gray-300 transition-colors">
               <div className="flex items-center gap-2 flex-wrap">
+                <span className="w-7 h-7 rounded-full overflow-hidden bg-gray-900 text-white flex items-center justify-center text-[10px] font-semibold shrink-0">
+                  {photoUrls[p.id] ? <img src={photoUrls[p.id]} className="w-full h-full object-cover" /> : initials(p.name)}
+                </span>
                 <span className="text-sm font-semibold text-gray-900">{p.name}</span>
+                {p.phone && <span className="text-xs text-gray-400">{p.phone}</span>}
                 <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${p.role === 'team_leader' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
                   {p.role === 'team_leader' ? 'Team Leader' : 'Installer'}
                 </span>
@@ -109,7 +127,7 @@ export default function PeopleTab() {
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
           <input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Email (optional)"
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-          <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="Phone (optional)"
+          <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="Work phone / contact number (optional)"
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
           <input value={form.pin} onChange={e => setForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, '').slice(0, 6) }))} placeholder="6-digit PIN" inputMode="numeric" maxLength={6}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono" />
