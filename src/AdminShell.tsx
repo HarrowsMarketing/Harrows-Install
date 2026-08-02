@@ -3,10 +3,11 @@ import { UserButton } from '@clerk/clerk-react'
 import JobCardsTab from './tabs/JobCardsTab'
 import PeopleTab from './tabs/PeopleTab'
 import ReportLibraryTab from './tabs/ReportLibraryTab'
+import DailyReportsTab from './tabs/DailyReportsTab'
 import ActivityTab from './tabs/ActivityTab'
 import SettingsModal from './components/SettingsModal'
 
-const TABS = ['Job Cards', 'People', 'Library', 'Activity'] as const
+const TABS = ['Job Cards', 'Daily Reports', 'People', 'Library', 'Activity'] as const
 type Tab = typeof TABS[number]
 
 export default function AdminShell() {
@@ -45,6 +46,7 @@ export default function AdminShell() {
 
       <main className="max-w-5xl mx-auto px-4 py-6">
         {tab === 'Job Cards' && <JobCardsTab />}
+        {tab === 'Daily Reports' && <DailyReportsTab />}
         {tab === 'People' && <PeopleTab />}
         {tab === 'Library' && <ReportLibraryTab />}
         {tab === 'Activity' && <ActivityTab />}
