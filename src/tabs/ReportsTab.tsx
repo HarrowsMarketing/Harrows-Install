@@ -20,7 +20,7 @@ export default function ReportsTab() {
   const [collapsedJobs, setCollapsedJobs] = useState<Set<string>>(new Set())
   const [showAdd, setShowAdd] = useState(false)
   const [config, setConfig] = useState<EodConfig>({
-    internalCcAddress: '', emailSignoff: 'Harrows Install Team', defectsNoticeText: '',
+    defectsNoticeText: '',
     defaultInstallerId: null, visibleFields: { products: true, issues_solutions: true, photos: true },
   })
 
@@ -83,7 +83,7 @@ export default function ReportsTab() {
     return next
   })
 
-  const markEmailed = async (id: string) => {
+  const markProcessed = async (id: string) => {
     await axios.patch(`/api/install/reports/${id}/mark-emailed`)
     setSelected(null)
     load(search)
@@ -143,7 +143,7 @@ export default function ReportsTab() {
                       {new Date(date + 'T00:00:00').toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                     </span>
                   </div>
-                  <span className="text-xs text-gray-300">{dateReports.length} report{dateReports.length !== 1 ? 's' : ''} · {emailedCount} emailed</span>
+                  <span className="text-xs text-gray-300">{dateReports.length} report{dateReports.length !== 1 ? 's' : ''} · {emailedCount} processed</span>
                 </button>
                 {!isCollapsed && (
                   <div className="divide-y divide-gray-100">
@@ -172,7 +172,7 @@ export default function ReportsTab() {
                     <span className="text-xs font-mono font-bold bg-harrows-yellow text-gray-900 px-2 py-0.5 rounded">JOB {group.job?.job_number || '—'}</span>
                     <span className="text-sm font-semibold">{group.job?.project_name || 'Unassigned'}</span>
                   </div>
-                  <span className="text-xs text-gray-300">{group.reports.length} reports · {emailedCount} emailed</span>
+                  <span className="text-xs text-gray-300">{group.reports.length} reports · {emailedCount} processed</span>
                 </button>
                 {!isCollapsed && (
                   <div className="divide-y divide-gray-100">
@@ -198,7 +198,7 @@ export default function ReportsTab() {
           report={selected}
           config={config}
           onClose={() => setSelected(null)}
-          onMarkEmailed={() => markEmailed(selected.id)}
+          onMarkProcessed={() => markProcessed(selected.id)}
           canDelete
           onDelete={() => deleteReport(selected.id)}
         />
@@ -236,7 +236,7 @@ function ReportRow({ r, onClick, showJob }: { r: EodReport; onClick: () => void;
         </div>
         <span className="text-xs text-gray-400 w-8">{r.percent_complete}%</span>
         <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${r.email_sent ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'}`}>
-          {r.email_sent ? 'Emailed' : 'Email not sent'}
+          {r.email_sent ? 'Processed' : 'Not processed'}
         </span>
         <span className="text-xs text-gray-400">{new Date(r.created_at).toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit' })}</span>
       </div>

@@ -420,7 +420,7 @@ app.delete('/api/install/people/:id', requireAdmin, async (req, res) => {
 
 // ── Reports ──────────────────────────────────────────────────────────────────
 
-const REPORT_SELECT = 'select=*,job:job_cards(id,job_number,project_name,address),installer:installers(id,name,photo_pathname),photos:eod_report_photos(id,blob_pathname)'
+const REPORT_SELECT = 'select=*,job:job_cards(id,job_number,project_name,address),installer:installers(id,name,photo_pathname),photos:eod_report_photos(id,blob_pathname,is_internal)'
 
 app.get('/api/install/reports', requireInstallerOrAdmin, async (req, res) => {
   try {
@@ -466,6 +466,7 @@ app.post('/api/install/reports', requireInstallerOrAdmin, async (req, res) => {
     const {
       jobId, installerId, reportDate, percentComplete, workDone, workScheduledTomorrow,
       products, issues, solutions, additionalNotes, photoPathnames,
+      internalNotes, internalPhotoPathnames,
     } = req.body || {}
     if (!reportDate || !workDone) return res.status(400).json({ error: 'reportDate and workDone are required' })
     // An installer session always files under their own identity, ignoring any client-supplied installerId.
@@ -483,14 +484,16 @@ app.post('/api/install/reports', requireInstallerOrAdmin, async (req, res) => {
       issues: issues || null,
       solutions: solutions || null,
       additional_notes: additionalNotes || null,
+      internal_notes: internalNotes || null,
     }, { headers: sbH({ Prefer: 'return=representation' }) })
     const report = r.data[0]
 
-    if (Array.isArray(photoPathnames) && photoPathnames.length) {
-      await axios.post(sb('eod_report_photos'),
-        photoPathnames.map(p => ({ report_id: report.id, blob_pathname: p })),
-        { headers: sbH() }
-      )
+    const photoRows = [
+      ...(Array.isArray(photoPathnames) ? photoPathnames.map(p => ({ report_id: report.id, blob_pathname: p, is_internal: false })) : []),
+      ...(Array.isArray(internalPhotoPathnames) ? internalPhotoPathnames.map(p => ({ report_id: report.id, blob_pathname: p, is_internal: true })) : []),
+    ]
+    if (photoRows.length) {
+      await axios.post(sb('eod_report_photos'), photoRows, { headers: sbH() })
     }
 
     res.json({ report })
@@ -570,14 +573,12 @@ const DEFAULT_VISIBLE_FIELDS = { products: true, issues_solutions: true, photos:
 
 app.get('/api/install/config', requireAdmin, async (req, res) => {
   try {
-    const [internalCcAddress, emailSignoff, defectsNoticeText, defaultInstallerId, visibleFields] = await Promise.all([
-      getConfig('internal_cc_address', ''),
-      getConfig('email_signoff', 'Harrows Install Team'),
+    const [defectsNoticeText, defaultInstallerId, visibleFields] = await Promise.all([
       getConfig('defects_notice_text', 'Should you encounter any defects, damages or items that need addressing, please let us know within 2 working days following the issue of this report.'),
       getConfig('default_installer_id', null),
       getConfig('visible_fields', DEFAULT_VISIBLE_FIELDS),
     ])
-    res.json({ internalCcAddress, emailSignoff, defectsNoticeText, defaultInstallerId, visibleFields })
+    res.json({ defectsNoticeText, defaultInstallerId, visibleFields })
   } catch (e) {
     console.error('config get error', e.message)
     res.status(500).json({ error: e.message })
@@ -586,11 +587,9 @@ app.get('/api/install/config', requireAdmin, async (req, res) => {
 
 app.patch('/api/install/config', requireAdmin, async (req, res) => {
   try {
-    const { internalCcAddress, emailSignoff, defectsNoticeText, defaultInstallerId, visibleFields } = req.body || {}
+    const { defectsNoticeText, defaultInstallerId, visibleFields } = req.body || {}
     const updatedBy = req.clerkUser?.id || ''
     await Promise.all([
-      internalCcAddress !== undefined ? setConfig('internal_cc_address', internalCcAddress, updatedBy) : null,
-      emailSignoff !== undefined ? setConfig('email_signoff', emailSignoff, updatedBy) : null,
       defectsNoticeText !== undefined ? setConfig('defects_notice_text', defectsNoticeText, updatedBy) : null,
       defaultInstallerId !== undefined ? setConfig('default_installer_id', defaultInstallerId, updatedBy) : null,
       visibleFields !== undefined ? setConfig('visible_fields', { ...DEFAULT_VISIBLE_FIELDS, ...visibleFields }, updatedBy) : null,

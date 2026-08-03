@@ -46,6 +46,7 @@ export interface Installer {
 export interface ReportPhoto {
   id: string
   blob_pathname: string
+  is_internal: boolean
 }
 
 export interface EodReport {
@@ -60,6 +61,7 @@ export interface EodReport {
   issues: string | null
   solutions: string | null
   additional_notes: string | null
+  internal_notes: string | null
   email_sent: boolean
   email_sent_at: string | null
   created_at: string
@@ -75,8 +77,6 @@ export interface VisibleFields {
 }
 
 export interface EodConfig {
-  internalCcAddress: string
-  emailSignoff: string
   defectsNoticeText: string
   defaultInstallerId: string | null
   visibleFields: VisibleFields

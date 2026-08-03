@@ -31,7 +31,7 @@ export default function InstallerReportsView({ refreshKey }: { refreshKey: numbe
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-gray-900">{r.job?.project_name || 'No job selected'}</p>
                 <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${r.email_sent ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'}`}>
-                  {r.email_sent ? 'Emailed' : 'Email not sent'}
+                  {r.email_sent ? 'Processed' : 'Not processed'}
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-0.5">{r.report_date} · {r.percent_complete}% complete</p>
@@ -43,7 +43,7 @@ export default function InstallerReportsView({ refreshKey }: { refreshKey: numbe
       {selected && (
         <ReportDetailModal
           report={selected}
-          config={{ defectsNoticeText: '', emailSignoff: 'Harrows Install Team', internalCcAddress: '' }}
+          config={{ defectsNoticeText: '' }}
           onClose={() => setSelected(null)}
           canSendToClient={false}
         />

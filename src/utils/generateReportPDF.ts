@@ -4,31 +4,27 @@ import axios from 'axios'
 import type { EodReport } from '../types'
 
 // Styled to match Harrows' actual factory job card stationery (see reference PDF Rocky
-// supplied) — plain white background, logo + business details top-right, no filled
-// colour blocks, thin grey rules instead of cards/shading.
+// supplied) — plain white background, just the logo up top (no letterhead address block),
+// no filled colour blocks, thin grey rules instead of cards/shading.
 const PW = 210, PH = 297, M = 14, CW = 182
 const INK: [number, number, number] = [17, 24, 39]
 const MUTED: [number, number, number] = [107, 114, 128]
 const LINE: [number, number, number] = [209, 213, 219]
 const HEADER_FILL: [number, number, number] = [245, 245, 246]
+const RED: [number, number, number] = [185, 28, 28]
+const RED_FILL: [number, number, number] = [254, 242, 242]
 
 const LOGO_SRC = '/Harrows_Logo2023_Wordmark_Charcoal_R_RGB.jpg'
 const LOGO_ASPECT = 1241 / 6250 // native pixel dimensions of the wordmark asset
 
-const COMPANY_LINES = [
-  'Harrows Contract Furniture Ltd',
-  'PO Box 3023, Timaru 7910, New Zealand',
-  'admin@harrows.co.nz',
-  '03 687 7577',
-  'GST NO. 114-038-954',
-]
+type Variant = 'job' | 'internal'
 
 function checkPage(doc: jsPDF, y: number, needed = 30): number {
-  if (y + needed > PH - 16) { doc.addPage(); return 22 }
+  if (y + needed > PH - 22) { doc.addPage(); return 22 }
   return y
 }
-function sectionLabel(doc: jsPDF, text: string, y: number): number {
-  doc.setFont('helvetica', 'bold').setFontSize(9).setTextColor(...INK)
+function sectionLabel(doc: jsPDF, text: string, y: number, color: [number, number, number] = INK): number {
+  doc.setFont('helvetica', 'bold').setFontSize(9).setTextColor(...color)
   doc.text(text.toUpperCase(), M, y, { charSpace: 0.3 })
   doc.setTextColor(0)
   return y + 4.5
@@ -76,7 +72,7 @@ function fieldColumn(doc: jsPDF, y: number, rows: { label: string; value: string
   return fy
 }
 
-function photoImage(doc: jsPDF, imgData: string, y: number, maxH = 90): number {
+function photoImage(doc: jsPDF, imgData: string, y: number, borderColor: [number, number, number] = LINE, maxH = 90): number {
   // Fit the image within the box preserving its own aspect ratio instead of stretching
   // it to a fixed box — a portrait phone photo forced into a wide fixed box came out
   // squished.
@@ -90,13 +86,30 @@ function photoImage(doc: jsPDF, imgData: string, y: number, maxH = 90): number {
   } catch { /* fall through with the box maxed out if properties can't be read */ }
 
   const boxH = h + 4
-  doc.setDrawColor(...LINE)
-  doc.setLineWidth(0.2)
+  doc.setDrawColor(...borderColor)
+  doc.setLineWidth(borderColor === LINE ? 0.2 : 0.6)
   doc.rect(M, y, CW, boxH, 'S')
   doc.setDrawColor(0)
   const x = M + (CW - w) / 2
   const format = imgData.startsWith('data:image/png') ? 'PNG' : 'JPEG'
   try { doc.addImage(imgData, format, x, y + 2, w, h) } catch { /* skip an image that fails to decode */ }
+  return y + boxH + 6
+}
+
+// A red-bordered box around internal-only text — the on-screen "internal" red box carried
+// through into the PDF so it stays just as obvious on paper.
+function internalNoteBox(doc: jsPDF, text: string, y: number): number {
+  const padding = 3
+  doc.setFont('helvetica', 'normal').setFontSize(9)
+  const lines = doc.splitTextToSize(text, CW - padding * 2)
+  const boxH = lines.length * 4.2 + padding * 2
+  doc.setFillColor(...RED_FILL)
+  doc.setDrawColor(...RED)
+  doc.setLineWidth(0.5)
+  doc.rect(M, y, CW, boxH, 'FD')
+  doc.setTextColor(...INK)
+  doc.text(lines, M + padding, y + padding + 3)
+  doc.setDrawColor(0).setTextColor(0).setFillColor(255, 255, 255)
   return y + boxH + 6
 }
 
@@ -161,13 +174,17 @@ async function fetchPhotoAsDataUrl(pathname: string): Promise<string | null> {
   }
 }
 
-function pdfFilename(report: EodReport) {
-  return `eod-${report.job?.job_number || 'report'}-${report.report_date}.pdf`
+function pdfFilename(report: EodReport, variant: Variant) {
+  const suffix = variant === 'internal' ? '-internal' : ''
+  return `eod-${report.job?.job_number || 'report'}-${report.report_date}${suffix}.pdf`
 }
 
-async function drawHeader(doc: jsPDF, report: EodReport): Promise<number> {
-  doc.setFont('helvetica', 'normal').setFontSize(16).setTextColor(0)
-  doc.text('EOD Report', M, 16, { charSpace: 0.7 })
+async function drawHeader(doc: jsPDF, report: EodReport, variant: Variant): Promise<number> {
+  const title = variant === 'internal' ? 'INTERNAL REPORT' : 'EOD Report'
+  const titleColor = variant === 'internal' ? RED : INK
+  doc.setFont('helvetica', 'bold').setFontSize(16).setTextColor(...titleColor)
+  doc.text(title, M, 16, { charSpace: 0.7 })
+  doc.setTextColor(0)
 
   const logoData = await fetchAsDataUrl(LOGO_SRC)
   const logoW = 42
@@ -176,41 +193,46 @@ async function drawHeader(doc: jsPDF, report: EodReport): Promise<number> {
     try { doc.addImage(logoData, 'JPEG', PW - M - logoW, 8, logoW, logoH) } catch { /* skip if it fails to decode */ }
   }
 
-  let by = 8 + logoH + 4
-  doc.setFont('helvetica', 'normal').setFontSize(7).setTextColor(...MUTED)
-  COMPANY_LINES.forEach(line => {
-    doc.text(line, PW - M, by, { align: 'right' })
-    by += 3.4
-  })
-  doc.setTextColor(0)
-
   const dateStr = new Date(report.report_date + 'T00:00:00').toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
   doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(...MUTED)
   doc.text(dateStr, M, 22)
   doc.setTextColor(0)
 
-  return Math.max(30, by + 4)
+  return Math.max(30, 8 + logoH + 4)
 }
 
-function drawContinuationHeader(doc: jsPDF, report: EodReport, pageNum: number) {
+function drawContinuationHeader(doc: jsPDF, report: EodReport, variant: Variant, pageNum: number) {
+  const label = variant === 'internal' ? 'INTERNAL REPORT' : 'EOD Report'
   doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(...MUTED)
-  doc.text(`EOD Report — ${report.job?.project_name || 'Job'}`, M, 12)
+  doc.text(`${label} — ${report.job?.project_name || 'Job'}`, M, 12)
   doc.text(`Page ${pageNum}`, PW - M, 12, { align: 'right' })
   doc.setDrawColor(...LINE).setLineWidth(0.2)
   doc.line(M, 15, PW - M, 15)
   doc.setDrawColor(0).setTextColor(0)
 }
 
-async function buildReportPDF(report: EodReport): Promise<jsPDF> {
+// Printed at the bottom of every page of the client-facing job report — the internal
+// report doesn't need it, since it's never seen by the client.
+function drawFooter(doc: jsPDF, defectsNoticeText: string) {
+  if (!defectsNoticeText) return
+  doc.setDrawColor(...LINE).setLineWidth(0.2)
+  doc.line(M, PH - 18, PW - M, PH - 18)
+  doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(...MUTED)
+  const lines = doc.splitTextToSize(defectsNoticeText, CW)
+  doc.text(lines, M, PH - 14)
+  doc.setTextColor(0)
+}
+
+async function buildReportPDF(report: EodReport, variant: Variant, defectsNoticeText: string): Promise<jsPDF> {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
 
-  let y = await drawHeader(doc, report)
+  let y = await drawHeader(doc, report, variant)
 
   const leftEnd = jobColumn(doc, y, report)
   const rightEnd = fieldColumn(doc, y, [
     { label: 'Installer', value: report.installer?.name || '—' },
     { label: 'Work Completed', value: `${report.percent_complete}%` },
-    { label: 'Emailed', value: report.email_sent ? 'Yes' : 'No' },
+    { label: 'Processed', value: report.email_sent ? 'Yes' : 'No' },
   ])
   if (report.installer?.photo_pathname) {
     const raw = await fetchPhotoAsDataUrl(report.installer.photo_pathname)
@@ -260,32 +282,47 @@ async function buildReportPDF(report: EodReport): Promise<jsPDF> {
     y = bodyText(doc, report.additional_notes, y)
   }
 
-  if (report.photos?.length) {
+  const clientPhotos = report.photos?.filter(p => !p.is_internal) ?? []
+  if (clientPhotos.length) {
     y = checkPage(doc, y, 20)
     y = sectionLabel(doc, 'End of day photos', y)
-    for (const photo of report.photos) {
+    for (const photo of clientPhotos) {
       y = checkPage(doc, y, 100)
       const dataUrl = await fetchPhotoAsDataUrl(photo.blob_pathname)
       if (dataUrl) y = photoImage(doc, dataUrl, y)
     }
   }
 
+  if (variant === 'internal') {
+    const internalPhotos = report.photos?.filter(p => p.is_internal) ?? []
+    if (report.internal_notes || internalPhotos.length) {
+      y = checkPage(doc, y, 20)
+      y = sectionLabel(doc, 'Internal notes & photos — not for client', y, RED)
+      if (report.internal_notes) y = internalNoteBox(doc, report.internal_notes, y)
+      for (const photo of internalPhotos) {
+        y = checkPage(doc, y, 100)
+        const dataUrl = await fetchPhotoAsDataUrl(photo.blob_pathname)
+        if (dataUrl) y = photoImage(doc, dataUrl, y, RED)
+      }
+    }
+  }
+
   const pages = (doc as any).getNumberOfPages?.() ?? 1
-  for (let i = 2; i <= pages; i++) {
+  for (let i = 1; i <= pages; i++) {
     doc.setPage(i)
-    drawContinuationHeader(doc, report, i)
+    if (i > 1) drawContinuationHeader(doc, report, variant, i)
+    if (variant === 'job') drawFooter(doc, defectsNoticeText)
   }
 
   return doc
 }
 
-export async function generateReportPDF(report: EodReport) {
-  const doc = await buildReportPDF(report)
-  doc.save(pdfFilename(report))
+export async function generateJobReportPDF(report: EodReport, defectsNoticeText: string) {
+  const doc = await buildReportPDF(report, 'job', defectsNoticeText)
+  doc.save(pdfFilename(report, 'job'))
 }
 
-export async function getReportPDFFile(report: EodReport): Promise<File> {
-  const doc = await buildReportPDF(report)
-  const blob = doc.output('blob') as Blob
-  return new File([blob], pdfFilename(report), { type: 'application/pdf' })
+export async function generateInternalReportPDF(report: EodReport) {
+  const doc = await buildReportPDF(report, 'internal', '')
+  doc.save(pdfFilename(report, 'internal'))
 }

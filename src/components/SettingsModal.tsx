@@ -42,19 +42,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
         ) : (
           <div className="px-5 py-4 space-y-5">
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Email</p>
-              <label className="text-xs text-gray-400 mb-1 block">Internal CC address</label>
-              <input value={config.internalCcAddress} onChange={e => setConfig({ ...config, internalCcAddress: e.target.value })}
-                placeholder="Always CC this address on report emails"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-3" />
-              <label className="text-xs text-gray-400 mb-1 block">Email sign-off</label>
-              <input value={config.emailSignoff} onChange={e => setConfig({ ...config, emailSignoff: e.target.value })}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-            </div>
-
-            <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Defects, damages & reporting notice</p>
-              <label className="text-xs text-gray-400 mb-1 block">Text shown under this header on every report</label>
+              <label className="text-xs text-gray-400 mb-1 block">Text shown at the bottom of every job report PDF</label>
               <textarea value={config.defectsNoticeText} onChange={e => setConfig({ ...config, defectsNoticeText: e.target.value })} rows={4}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
             </div>

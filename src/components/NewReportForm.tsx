@@ -30,6 +30,8 @@ export default function NewReportForm({ installer, visibleFields, onSubmitted }:
   const [solutions, setSolutions] = useState('')
   const [additionalNotes, setAdditionalNotes] = useState('')
   const [photoPathnames, setPhotoPathnames] = useState<string[]>([])
+  const [internalNotes, setInternalNotes] = useState('')
+  const [internalPhotoPathnames, setInternalPhotoPathnames] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
@@ -46,7 +48,7 @@ export default function NewReportForm({ installer, visibleFields, onSubmitted }:
   const reset = () => {
     setJob(null); setJobSearch(''); setDate(todayStr()); setPercentComplete(0)
     setWorkDone(''); setWorkScheduledTomorrow(''); setProducts(''); setIssues(''); setSolutions('')
-    setAdditionalNotes(''); setPhotoPathnames([]); setDone(false)
+    setAdditionalNotes(''); setPhotoPathnames([]); setInternalNotes(''); setInternalPhotoPathnames([]); setDone(false)
   }
 
   const submit = async () => {
@@ -65,6 +67,8 @@ export default function NewReportForm({ installer, visibleFields, onSubmitted }:
         solutions: visibleFields.issues_solutions ? solutions : undefined,
         additionalNotes,
         photoPathnames: visibleFields.photos ? photoPathnames : [],
+        internalNotes,
+        internalPhotoPathnames,
       })
       setDone(true)
       onSubmitted()
@@ -202,6 +206,17 @@ export default function NewReportForm({ installer, visibleFields, onSubmitted }:
         <textarea value={additionalNotes} onChange={e => setAdditionalNotes(e.target.value)} rows={2}
           placeholder="Anything else worth noting — last minute changes, instructions, reminders, anything that doesn't fit above..."
           className="mt-2 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+      </section>
+
+      <section className="bg-red-50 border-2 border-red-300 rounded-xl p-4">
+        <label className="text-xs font-bold text-red-700 uppercase tracking-wide">Internal only — not seen by the client</label>
+        <p className="text-xs text-red-500 mt-1 mb-2">Problems, damages or anything else that shouldn't go in the client-facing report.</p>
+        <textarea value={internalNotes} onChange={e => setInternalNotes(e.target.value)} rows={3}
+          placeholder="Internal notes / problems..."
+          className="w-full border border-red-200 rounded-lg px-3 py-2 text-sm bg-white" />
+        <div className="mt-3">
+          <PhotoUpload reportKey={`${reportKey}-internal`} pathnames={internalPhotoPathnames} onChange={setInternalPhotoPathnames} />
+        </div>
       </section>
 
       {error && <p className="text-sm text-red-500">{error}</p>}

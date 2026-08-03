@@ -34,6 +34,8 @@ export default function AddReportModal({ visibleFields, onClose, onSaved }: Prop
   const [solutions, setSolutions] = useState('')
   const [additionalNotes, setAdditionalNotes] = useState('')
   const [photoPathnames, setPhotoPathnames] = useState<string[]>([])
+  const [internalNotes, setInternalNotes] = useState('')
+  const [internalPhotoPathnames, setInternalPhotoPathnames] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -68,6 +70,8 @@ export default function AddReportModal({ visibleFields, onClose, onSaved }: Prop
         solutions: visibleFields.issues_solutions ? solutions : undefined,
         additionalNotes,
         photoPathnames: visibleFields.photos ? photoPathnames : [],
+        internalNotes,
+        internalPhotoPathnames,
       })
       onSaved(r.data.report)
     } catch (e: any) {
@@ -194,6 +198,17 @@ export default function AddReportModal({ visibleFields, onClose, onSaved }: Prop
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Additional notes</label>
             <textarea value={additionalNotes} onChange={e => setAdditionalNotes(e.target.value)} rows={2}
               className="mt-2 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+          </div>
+
+          <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4">
+            <label className="text-xs font-bold text-red-700 uppercase tracking-wide">Internal only — not seen by the client</label>
+            <p className="text-xs text-red-500 mt-1 mb-2">Problems, damages or anything else that shouldn't go in the client-facing report.</p>
+            <textarea value={internalNotes} onChange={e => setInternalNotes(e.target.value)} rows={3}
+              placeholder="Internal notes / problems..."
+              className="w-full border border-red-200 rounded-lg px-3 py-2 text-sm bg-white" />
+            <div className="mt-3">
+              <PhotoUpload reportKey={`${reportKey}-internal`} pathnames={internalPhotoPathnames} onChange={setInternalPhotoPathnames} />
+            </div>
           </div>
 
           {error && <p className="text-sm text-red-500">{error}</p>}

@@ -1,23 +1,21 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import type { EodConfig, EodReport } from '../types'
-import { shareOrDraftReportEmail } from '../utils/emailDraft'
-import { generateReportPDF } from '../utils/generateReportPDF'
+import { generateJobReportPDF, generateInternalReportPDF } from '../utils/generateReportPDF'
 
 interface Props {
   report: EodReport
-  config: Pick<EodConfig, 'defectsNoticeText' | 'emailSignoff' | 'internalCcAddress'>
+  config: Pick<EodConfig, 'defectsNoticeText'>
   onClose: () => void
-  onMarkEmailed?: () => void
+  onMarkProcessed?: () => void
   canDelete?: boolean
   onDelete?: () => void
   canSendToClient?: boolean
 }
 
-export default function ReportDetailModal({ report, config, onClose, onMarkEmailed, canDelete, onDelete, canSendToClient = true }: Props) {
+export default function ReportDetailModal({ report, config, onClose, onMarkProcessed, canDelete, onDelete, canSendToClient = true }: Props) {
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({})
   const [generatingPdf, setGeneratingPdf] = useState(false)
-  const [sendingEmail, setSendingEmail] = useState(false)
 
   useEffect(() => {
     report.photos?.forEach(p => {
@@ -27,15 +25,18 @@ export default function ReportDetailModal({ report, config, onClose, onMarkEmail
     })
   }, [report])
 
-  const draftEmail = async () => {
-    setSendingEmail(true)
-    try { await shareOrDraftReportEmail(report, config) } finally { setSendingEmail(false) }
+  const printJobReport = async () => {
+    setGeneratingPdf(true)
+    try { await generateJobReportPDF(report, config.defectsNoticeText) } finally { setGeneratingPdf(false) }
   }
 
-  const printPdf = async () => {
+  const printInternalReport = async () => {
     setGeneratingPdf(true)
-    try { await generateReportPDF(report) } finally { setGeneratingPdf(false) }
+    try { await generateInternalReportPDF(report) } finally { setGeneratingPdf(false) }
   }
+
+  const clientPhotos = report.photos?.filter(p => !p.is_internal) ?? []
+  const internalPhotos = report.photos?.filter(p => p.is_internal) ?? []
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -55,7 +56,7 @@ export default function ReportDetailModal({ report, config, onClose, onMarkEmail
             <span className="text-xs text-gray-500">Installer: <span className="font-medium text-gray-800">{report.installer?.name || '—'}</span></span>
             <span className="text-xs text-gray-500">{report.percent_complete}% complete</span>
             <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${report.email_sent ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'}`}>
-              {report.email_sent ? 'Emailed' : 'Email not sent'}
+              {report.email_sent ? 'Processed' : 'Not processed'}
             </span>
           </div>
 
@@ -66,14 +67,28 @@ export default function ReportDetailModal({ report, config, onClose, onMarkEmail
           {report.solutions && <Field label="Solutions" value={report.solutions} />}
           {report.additional_notes && <Field label="Additional notes" value={report.additional_notes} />}
 
-          {report.photos?.length > 0 && (
+          {clientPhotos.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Photos</p>
               <div className="grid grid-cols-2 gap-2">
-                {report.photos.map(p => photoUrls[p.id] && (
+                {clientPhotos.map(p => photoUrls[p.id] && (
                   <img key={p.id} src={photoUrls[p.id]} className="rounded-lg border border-gray-200 aspect-square object-cover" />
                 ))}
               </div>
+            </div>
+          )}
+
+          {(report.internal_notes || internalPhotos.length > 0) && (
+            <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4">
+              <p className="text-xs font-bold text-red-700 uppercase tracking-wide mb-2">Internal only — not seen by the client</p>
+              {report.internal_notes && <p className="text-sm text-gray-800 whitespace-pre-wrap mb-2">{report.internal_notes}</p>}
+              {internalPhotos.length > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  {internalPhotos.map(p => photoUrls[p.id] && (
+                    <img key={p.id} src={photoUrls[p.id]} className="rounded-lg border-2 border-red-300 aspect-square object-cover" />
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -81,17 +96,17 @@ export default function ReportDetailModal({ report, config, onClose, onMarkEmail
         <div className="px-5 py-4 border-t border-gray-100 flex flex-wrap gap-2">
           {canSendToClient && (
             <>
-              <button onClick={draftEmail} disabled={sendingEmail} className="flex-1 px-3 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors">
-                {sendingEmail ? 'Preparing...' : 'Send as PDF'}
+              <button onClick={printJobReport} disabled={generatingPdf} className="flex-1 px-3 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors">
+                {generatingPdf ? 'Generating...' : 'Print job report'}
               </button>
-              <button onClick={printPdf} disabled={generatingPdf} className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors">
-                {generatingPdf ? 'Generating...' : 'Print as PDF'}
+              <button onClick={printInternalReport} disabled={generatingPdf} className="flex-1 px-3 py-2 text-sm border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-50 transition-colors">
+                {generatingPdf ? 'Generating...' : 'Print internal report'}
               </button>
             </>
           )}
-          {canSendToClient && !report.email_sent && onMarkEmailed && (
-            <button onClick={onMarkEmailed} className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-              Mark as emailed
+          {canSendToClient && !report.email_sent && onMarkProcessed && (
+            <button onClick={onMarkProcessed} className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              Mark as processed
             </button>
           )}
           {canDelete && onDelete && (
