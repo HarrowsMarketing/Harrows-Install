@@ -7,7 +7,7 @@ export default function AdminLoginPage() {
       <h1 className="text-lg font-semibold text-gray-900 mb-1">Harrows Install EOD</h1>
       <p className="text-sm text-gray-400 mb-8">Office &amp; admin sign in</p>
       <SignIn routing="hash" />
-      <a href="/report" className="mt-8 text-xs text-gray-400 hover:text-gray-600 transition-colors">
+      <a href="/" className="mt-8 text-xs text-gray-400 hover:text-gray-600 transition-colors">
         Installer? Go to the site report page &rarr;
       </a>
     </div>

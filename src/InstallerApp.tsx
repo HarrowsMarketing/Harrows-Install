@@ -54,7 +54,7 @@ function PinEntry({ onSignedIn }: { onSignedIn: (installer: InstallerInfo) => vo
           {loading ? 'Checking...' : 'Continue'}
         </button>
       </div>
-      <a href="/" className="mt-8 text-xs text-gray-400 hover:text-gray-600 transition-colors">Office staff? Sign in here &rarr;</a>
+      <a href="/admin" className="mt-8 text-xs text-gray-400 hover:text-gray-600 transition-colors">Office staff? Sign in here &rarr;</a>
     </div>
   )
 }

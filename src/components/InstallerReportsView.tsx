@@ -6,13 +6,20 @@ import ReportDetailModal from './ReportDetailModal'
 export default function InstallerReportsView({ refreshKey }: { refreshKey: number }) {
   const [reports, setReports] = useState<EodReport[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [selected, setSelected] = useState<EodReport | null>(null)
 
   const load = async () => {
     setLoading(true)
-    const r = await axios.get('/api/install/reports')
-    setReports(r.data.reports)
-    setLoading(false)
+    setError('')
+    try {
+      const r = await axios.get('/api/install/reports')
+      setReports(r.data.reports)
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to load reports')
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => { load() }, [refreshKey])
@@ -20,9 +27,10 @@ export default function InstallerReportsView({ refreshKey }: { refreshKey: numbe
   return (
     <div>
       <h2 className="text-base font-bold text-gray-900 mb-3">My reports</h2>
+      {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
       {loading ? (
         <p className="text-sm text-gray-400">Loading...</p>
-      ) : reports.length === 0 ? (
+      ) : error ? null : reports.length === 0 ? (
         <p className="text-sm text-gray-400">You haven't filed any reports yet.</p>
       ) : (
         <div className="space-y-2">

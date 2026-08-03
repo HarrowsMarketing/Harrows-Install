@@ -14,6 +14,7 @@ export default function ReportsTab() {
   const [reports, setReports] = useState<EodReport[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [selected, setSelected] = useState<EodReport | null>(null)
   const [view, setView] = useState<View>('date')
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set())
@@ -26,9 +27,15 @@ export default function ReportsTab() {
 
   const load = async (q = '') => {
     setLoading(true)
-    const r = await axios.get('/api/install/reports', { params: q ? { search: q } : {} })
-    setReports(r.data.reports)
-    setLoading(false)
+    setError('')
+    try {
+      const r = await axios.get('/api/install/reports', { params: q ? { search: q } : {} })
+      setReports(r.data.reports)
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to load reports')
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -125,9 +132,11 @@ export default function ReportsTab() {
         </div>
       </div>
 
+      {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
+
       {loading ? (
         <p className="text-sm text-gray-400">Loading...</p>
-      ) : reports.length === 0 ? (
+      ) : error ? null : reports.length === 0 ? (
         <p className="text-sm text-gray-400">No reports yet.</p>
       ) : view === 'date' ? (
         <div className="space-y-3">

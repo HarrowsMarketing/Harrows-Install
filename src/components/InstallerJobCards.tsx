@@ -7,10 +7,16 @@ export default function InstallerJobCards() {
   const [jobs, setJobs] = useState<JobCard[]>([])
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [error, setError] = useState('')
 
   const load = async (q = '') => {
-    const r = await axios.get('/api/install/jobs', { params: q ? { search: q } : {} })
-    setJobs(r.data.jobs)
+    setError('')
+    try {
+      const r = await axios.get('/api/install/jobs', { params: q ? { search: q } : {} })
+      setJobs(r.data.jobs)
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to load job cards')
+    }
   }
 
   useEffect(() => { load() }, [])
@@ -29,6 +35,7 @@ export default function InstallerJobCards() {
         placeholder="Search by job number or project name..."
         className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm mb-3"
       />
+      {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
       <div className="space-y-2 mb-4">
         {jobs.map(job => (
           <div key={job.id} className="bg-white border border-gray-200 rounded-lg px-4 py-3">
