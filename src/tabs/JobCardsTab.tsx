@@ -33,7 +33,12 @@ export default function JobCardsTab() {
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-gray-900 mb-1">Job cards on file</h2>
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <h2 className="text-lg font-bold text-gray-900">Job cards on file</h2>
+        <button onClick={() => setShowAdd(true)} className="shrink-0 px-4 py-2.5 text-sm font-semibold bg-harrows-yellow text-gray-900 rounded-lg hover:brightness-95 transition-all">
+          + Add a job card
+        </button>
+      </div>
       <p className="text-sm text-gray-500 mb-4">Saved jobs the team can pick from for install reports.</p>
 
       <input
@@ -64,10 +69,6 @@ export default function JobCardsTab() {
           ))}
         </div>
       )}
-
-      <button onClick={() => setShowAdd(true)} className="px-4 py-2.5 text-sm font-semibold bg-harrows-yellow text-gray-900 rounded-lg hover:brightness-95 transition-all">
-        + Add a job card
-      </button>
 
       {showAdd && (
         <JobCardModal
