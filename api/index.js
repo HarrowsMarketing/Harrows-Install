@@ -442,8 +442,10 @@ app.get('/api/install/reports', requireInstallerOrAdmin, async (req, res) => {
     }
     res.json({ reports })
   } catch (e) {
-    console.error('reports list error', e.message)
-    res.status(500).json({ error: e.message })
+    // e.message from axios is just "Request failed with status code 400" — the actual
+    // reason (e.g. Supabase's PostgREST rejecting the query) is in e.response.data.
+    console.error('reports list error', JSON.stringify(e.response?.data) || e.message)
+    res.status(500).json({ error: e.response?.data?.message || e.message })
   }
 })
 
