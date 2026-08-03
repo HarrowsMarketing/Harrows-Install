@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import axios from 'axios'
 import { upload } from '@vercel/blob/client'
 import { getAuthHeaders } from '../lib/api'
-import { resizeForUpload } from '../utils/resizeImage'
 import { setInstallerSession, type InstallerInfo } from '../utils/installerSession'
+import PhotoCropModal from './PhotoCropModal'
 
 interface Props {
   installer: InstallerInfo
@@ -24,6 +24,7 @@ export default function MyProfileModal({ installer, onClose, onUpdated }: Props)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [cropFile, setCropFile] = useState<{ file: File; src: string } | null>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
   const galleryRef = useRef<HTMLInputElement>(null)
 
@@ -43,16 +44,21 @@ export default function MyProfileModal({ installer, onClose, onUpdated }: Props)
       .catch(() => {})
   }, [photoPathname])
 
-  const handlePhoto = async (files: FileList | null) => {
+  const handlePhoto = (files: FileList | null) => {
     if (!files || !files.length) return
     const file = files[0] // snapshot before any await — see PhotoUpload.tsx for why
+    setCropFile({ file, src: URL.createObjectURL(file) })
+  }
+
+  const uploadCropped = async (cropped: File) => {
+    setCropFile(null)
     setUploadingPhoto(true)
     setError('')
     try {
-      const resized = await resizeForUpload(file)
+      // getCroppedFile already downsizes/re-encodes to JPEG, so no separate resize step needed.
       const headers = await getAuthHeaders()
-      const pathname = `install/profile/${installer.id}/${Date.now()}-${resized.name}`
-      const blob = await upload(pathname, resized, {
+      const pathname = `install/profile/${installer.id}/${Date.now()}-${cropped.name}`
+      const blob = await upload(pathname, cropped, {
         access: 'private',
         handleUploadUrl: '/api/install/photos/upload-token',
         multipart: true,
@@ -145,6 +151,15 @@ export default function MyProfileModal({ installer, onClose, onUpdated }: Props)
           </div>
         )}
       </div>
+
+      {cropFile && (
+        <PhotoCropModal
+          file={cropFile.file}
+          imageSrc={cropFile.src}
+          onCancel={() => { URL.revokeObjectURL(cropFile.src); setCropFile(null) }}
+          onCropped={cropped => { URL.revokeObjectURL(cropFile.src); uploadCropped(cropped) }}
+        />
+      )}
     </div>
   )
 }

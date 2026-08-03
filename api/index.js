@@ -368,13 +368,14 @@ app.get('/api/install/people', requireAdmin, async (req, res) => {
 
 app.post('/api/install/people', requireAdmin, async (req, res) => {
   try {
-    const { name, email, phone, pin, role, adminAccess } = req.body || {}
+    const { name, email, phone, pin, role, adminAccess, photoPathname } = req.body || {}
     if (!name || !pin) return res.status(400).json({ error: 'name and pin are required' })
     if (!isValidPin(String(pin))) return res.status(400).json({ error: 'PIN must be exactly 6 digits' })
     const r = await axios.post(sb('installers'), {
       name, email: email || null, phone: phone || null, pin: String(pin),
       role: role === 'team_leader' ? 'team_leader' : 'installer',
       admin_access: !!adminAccess,
+      photo_pathname: photoPathname || null,
     }, { headers: sbH({ Prefer: 'return=representation' }) })
     res.json({ person: r.data[0] })
   } catch (e) {
@@ -386,7 +387,7 @@ app.post('/api/install/people', requireAdmin, async (req, res) => {
 app.patch('/api/install/people/:id', requireAdmin, async (req, res) => {
   try {
     if (!isUuid(req.params.id)) return res.status(400).json({ error: 'Invalid id' })
-    const { name, email, phone, pin, role, adminAccess } = req.body || {}
+    const { name, email, phone, pin, role, adminAccess, photoPathname } = req.body || {}
     const patch = {}
     if (name !== undefined) patch.name = name
     if (email !== undefined) patch.email = email
@@ -397,6 +398,7 @@ app.patch('/api/install/people/:id', requireAdmin, async (req, res) => {
     }
     if (role !== undefined) patch.role = role === 'team_leader' ? 'team_leader' : 'installer'
     if (adminAccess !== undefined) patch.admin_access = !!adminAccess
+    if (photoPathname !== undefined) patch.photo_pathname = photoPathname
     await axios.patch(sb('installers', `id=eq.${req.params.id}`), patch, { headers: sbH() })
     res.json({ ok: true })
   } catch (e) {

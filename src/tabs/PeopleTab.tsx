@@ -1,8 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import axios from 'axios'
+import { upload } from '@vercel/blob/client'
 import type { Installer } from '../types'
+import { getAuthHeaders } from '../lib/api'
+import PhotoCropModal from '../components/PhotoCropModal'
 
-const emptyForm = { name: '', email: '', phone: '', pin: '', role: 'installer' as 'installer' | 'team_leader', adminAccess: false }
+const emptyForm = { name: '', email: '', phone: '', pin: '', role: 'installer' as 'installer' | 'team_leader', adminAccess: false, photoPathname: null as string | null }
+
+// New people don't have an id yet to namespace their photo's blob pathname under —
+// this stands in for one, same pattern as NewReportForm's client-generated reportKey.
+function tempPhotoKey() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
 
 function initials(name: string) {
   return name.trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() || '').join('')
@@ -17,6 +26,11 @@ export default function PeopleTab() {
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
+  const [formPhotoUrl, setFormPhotoUrl] = useState<string | null>(null)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [cropFile, setCropFile] = useState<{ file: File; src: string } | null>(null)
+  const [photoKey] = useState(tempPhotoKey)
+  const galleryRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
     setLoading(true)
@@ -43,14 +57,44 @@ export default function PeopleTab() {
 
   const startEdit = (p: Installer) => {
     setEditingId(p.id)
-    setForm({ name: p.name, email: p.email || '', phone: p.phone || '', pin: p.pin, role: p.role, adminAccess: p.admin_access })
+    setForm({ name: p.name, email: p.email || '', phone: p.phone || '', pin: p.pin, role: p.role, adminAccess: p.admin_access, photoPathname: p.photo_pathname })
+    setFormPhotoUrl(photoUrls[p.id] || null)
     setShowAdd(true)
   }
 
   const startAdd = () => {
     setEditingId(null)
     setForm(emptyForm)
+    setFormPhotoUrl(null)
     setShowAdd(true)
+  }
+
+  const handlePhoto = (files: FileList | null) => {
+    if (!files || !files.length) return
+    const file = files[0] // snapshot before any await — see PhotoUpload.tsx for why
+    setCropFile({ file, src: URL.createObjectURL(file) })
+  }
+
+  const uploadCropped = async (cropped: File) => {
+    setCropFile(null)
+    setUploadingPhoto(true)
+    setError('')
+    try {
+      const headers = await getAuthHeaders()
+      const pathname = `install/profile/${editingId || photoKey}/${Date.now()}-${cropped.name}`
+      const blob = await upload(pathname, cropped, {
+        access: 'private',
+        handleUploadUrl: '/api/install/photos/upload-token',
+        multipart: true,
+        headers,
+      })
+      setForm(f => ({ ...f, photoPathname: blob.pathname }))
+      setFormPhotoUrl(URL.createObjectURL(cropped))
+    } catch (e: any) {
+      setError(e.message || 'Photo upload failed')
+    } finally {
+      setUploadingPhoto(false)
+    }
   }
 
   const save = async () => {
@@ -59,17 +103,18 @@ export default function PeopleTab() {
     setSaving(true)
     setError('')
     try {
+      const payload = {
+        name: form.name, email: form.email, phone: form.phone, pin: form.pin, role: form.role,
+        adminAccess: form.adminAccess, photoPathname: form.photoPathname,
+      }
       if (editingId) {
-        await axios.patch(`/api/install/people/${editingId}`, {
-          name: form.name, email: form.email, phone: form.phone, pin: form.pin, role: form.role, adminAccess: form.adminAccess,
-        })
+        await axios.patch(`/api/install/people/${editingId}`, payload)
       } else {
-        await axios.post('/api/install/people', {
-          name: form.name, email: form.email, phone: form.phone, pin: form.pin, role: form.role, adminAccess: form.adminAccess,
-        })
+        await axios.post('/api/install/people', payload)
       }
       setShowAdd(false)
       setForm(emptyForm)
+      setFormPhotoUrl(null)
       setEditingId(null)
       load()
     } catch (e: any) {
@@ -123,6 +168,24 @@ export default function PeopleTab() {
 
       {showAdd ? (
         <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+          <div className="flex flex-col items-center gap-2 pb-1">
+            <button
+              type="button"
+              onClick={() => galleryRef.current?.click()}
+              disabled={uploadingPhoto}
+              className="relative w-16 h-16 rounded-full overflow-hidden bg-gray-900 text-white flex items-center justify-center text-sm font-semibold shrink-0 disabled:opacity-50"
+            >
+              {formPhotoUrl ? <img src={formPhotoUrl} className="w-full h-full object-cover" /> : initials(form.name || '?')}
+            </button>
+            <button type="button" onClick={() => galleryRef.current?.click()} disabled={uploadingPhoto}
+              className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:border-gray-300 disabled:opacity-50 transition-colors">
+              {formPhotoUrl ? 'Change photo' : 'Add photo'}
+            </button>
+            <input ref={galleryRef} type="file" accept="image/*" className="hidden"
+              onChange={e => { handlePhoto(e.target.files); e.target.value = '' }} />
+            {uploadingPhoto && <p className="text-xs text-gray-400">Uploading...</p>}
+          </div>
+
           <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Name"
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
           <input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Email (optional)"
@@ -154,6 +217,15 @@ export default function PeopleTab() {
         <button onClick={startAdd} className="px-4 py-2.5 text-sm font-semibold bg-harrows-yellow text-gray-900 rounded-lg hover:brightness-95 transition-all">
           + Add a person
         </button>
+      )}
+
+      {cropFile && (
+        <PhotoCropModal
+          file={cropFile.file}
+          imageSrc={cropFile.src}
+          onCancel={() => { URL.revokeObjectURL(cropFile.src); setCropFile(null) }}
+          onCropped={cropped => { URL.revokeObjectURL(cropFile.src); uploadCropped(cropped) }}
+        />
       )}
     </div>
   )
