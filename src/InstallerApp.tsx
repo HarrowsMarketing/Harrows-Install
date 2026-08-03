@@ -6,6 +6,7 @@ import NewReportForm from './components/NewReportForm'
 import InstallerJobCards from './components/InstallerJobCards'
 import InstallerReportsView from './components/InstallerReportsView'
 import MyProfileModal from './components/MyProfileModal'
+import { countNewReports, getLastSeen, markReportsSeen } from './utils/reportsBadge'
 
 const DEFAULT_VISIBLE_FIELDS: VisibleFields = { products: true, issues_solutions: true, photos: true }
 
@@ -65,16 +66,26 @@ export default function InstallerApp() {
   const [installer, setInstaller] = useState<InstallerInfo | null>(() => (getInstallerToken() ? getInstallerInfo() : null))
   const [tab, setTab] = useState<Tab>('New Report')
   const [visibleFields, setVisibleFields] = useState<VisibleFields>(DEFAULT_VISIBLE_FIELDS)
-  const [defectsNoticeText, setDefectsNoticeText] = useState('')
   const [reportsRefreshKey, setReportsRefreshKey] = useState(0)
   const [showProfile, setShowProfile] = useState(false)
+  const [newReports, setNewReports] = useState(0)
 
   useEffect(() => {
     if (!installer) return
     axios.get('/api/install/report-form-config')
-      .then(r => { setVisibleFields(r.data.visibleFields); setDefectsNoticeText(r.data.defectsNoticeText) })
+      .then(r => setVisibleFields(r.data.visibleFields))
       .catch(() => {})
   }, [installer])
+
+  // Only admin_access installers (team leads) see everyone's reports, so only they get
+  // anything meaningful from a "new reports" badge — a regular installer only sees their
+  // own, which they already know about from submitting it themselves.
+  useEffect(() => {
+    if (!installer?.adminAccess) return
+    axios.get('/api/install/reports')
+      .then(r => setNewReports(countNewReports(r.data.reports, getLastSeen('installer'))))
+      .catch(() => {})
+  }, [installer, reportsRefreshKey])
 
   if (!installer) {
     return <PinEntry onSignedIn={setInstaller} />
@@ -83,6 +94,11 @@ export default function InstallerApp() {
   const signOut = () => {
     clearInstallerSession()
     setInstaller(null)
+  }
+
+  const selectTab = (t: Tab) => {
+    setTab(t)
+    if (t === 'My Reports') { markReportsSeen('installer'); setNewReports(0) }
   }
 
   return (
@@ -100,11 +116,16 @@ export default function InstallerApp() {
         </div>
         <nav className="px-4 flex gap-1 border-t border-white/10 overflow-x-auto">
           {TABS.map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+            <button key={t} onClick={() => selectTab(t)}
+              className={`px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex items-center gap-1.5 ${
                 tab === t ? 'border-harrows-yellow text-white' : 'border-transparent text-gray-400 hover:text-gray-200'
               }`}>
               {t.toUpperCase()}
+              {t === 'My Reports' && newReports > 0 && (
+                <span className="min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-harrows-yellow text-gray-900 text-[10px] font-bold flex items-center justify-center">
+                  {newReports}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -115,7 +136,6 @@ export default function InstallerApp() {
           <NewReportForm
             installer={installer}
             visibleFields={visibleFields}
-            defectsNoticeText={defectsNoticeText}
             onSubmitted={() => setReportsRefreshKey(k => k + 1)}
           />
         )}

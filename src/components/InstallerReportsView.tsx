@@ -17,12 +17,6 @@ export default function InstallerReportsView({ refreshKey }: { refreshKey: numbe
 
   useEffect(() => { load() }, [refreshKey])
 
-  const markEmailed = async (id: string) => {
-    await axios.patch(`/api/install/reports/${id}/mark-emailed`)
-    setSelected(null)
-    load()
-  }
-
   return (
     <div>
       <h2 className="text-base font-bold text-gray-900 mb-3">My reports</h2>
@@ -51,7 +45,7 @@ export default function InstallerReportsView({ refreshKey }: { refreshKey: numbe
           report={selected}
           config={{ defectsNoticeText: '', emailSignoff: 'Harrows Install Team', internalCcAddress: '' }}
           onClose={() => setSelected(null)}
-          onMarkEmailed={() => markEmailed(selected.id)}
+          canSendToClient={false}
         />
       )}
     </div>

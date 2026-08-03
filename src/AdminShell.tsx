@@ -1,18 +1,31 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import axios from 'axios'
 import { UserButton } from '@clerk/clerk-react'
 import JobCardsTab from './tabs/JobCardsTab'
 import PeopleTab from './tabs/PeopleTab'
-import ReportLibraryTab from './tabs/ReportLibraryTab'
-import DailyReportsTab from './tabs/DailyReportsTab'
+import ReportsTab from './tabs/ReportsTab'
 import ActivityTab from './tabs/ActivityTab'
 import SettingsModal from './components/SettingsModal'
+import { countNewReports, getLastSeen, markReportsSeen } from './utils/reportsBadge'
 
-const TABS = ['Job Cards', 'Daily Reports', 'People', 'Library', 'Activity'] as const
+const TABS = ['Job Cards', 'Reports', 'People', 'Activity'] as const
 type Tab = typeof TABS[number]
 
 export default function AdminShell() {
   const [tab, setTab] = useState<Tab>('Job Cards')
   const [showSettings, setShowSettings] = useState(false)
+  const [newReports, setNewReports] = useState(0)
+
+  useEffect(() => {
+    axios.get('/api/install/reports')
+      .then(r => setNewReports(countNewReports(r.data.reports, getLastSeen('admin'))))
+      .catch(() => {})
+  }, [])
+
+  const selectTab = (t: Tab) => {
+    setTab(t)
+    if (t === 'Reports') { markReportsSeen('admin'); setNewReports(0) }
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -33,12 +46,17 @@ export default function AdminShell() {
           {TABS.map(t => (
             <button
               key={t}
-              onClick={() => setTab(t)}
-              className={`px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+              onClick={() => selectTab(t)}
+              className={`px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex items-center gap-1.5 ${
                 tab === t ? 'border-harrows-yellow text-white' : 'border-transparent text-gray-400 hover:text-gray-200'
               }`}
             >
               {t.toUpperCase()}
+              {t === 'Reports' && newReports > 0 && (
+                <span className="min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-harrows-yellow text-gray-900 text-[10px] font-bold flex items-center justify-center">
+                  {newReports}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -46,9 +64,8 @@ export default function AdminShell() {
 
       <main className="max-w-5xl mx-auto px-4 py-6">
         {tab === 'Job Cards' && <JobCardsTab />}
-        {tab === 'Daily Reports' && <DailyReportsTab />}
+        {tab === 'Reports' && <ReportsTab />}
         {tab === 'People' && <PeopleTab />}
-        {tab === 'Library' && <ReportLibraryTab />}
         {tab === 'Activity' && <ActivityTab />}
       </main>
 

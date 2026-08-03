@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
-import type { EodReport, JobCard, VisibleFields } from '../types'
+import type { JobCard, VisibleFields } from '../types'
 import type { InstallerInfo } from '../utils/installerSession'
 import PhotoUpload from './PhotoUpload'
-import { shareOrDraftReportEmail } from '../utils/emailDraft'
 
 function todayStr() {
   return new Date().toISOString().split('T')[0]
@@ -14,11 +13,10 @@ const PERCENT_STEPS = [0, 25, 50, 75, 100]
 interface Props {
   installer: InstallerInfo
   visibleFields: VisibleFields
-  defectsNoticeText: string
   onSubmitted: () => void
 }
 
-export default function NewReportForm({ installer, visibleFields, defectsNoticeText, onSubmitted }: Props) {
+export default function NewReportForm({ installer, visibleFields, onSubmitted }: Props) {
   const [reportKey] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
   const [jobSearch, setJobSearch] = useState('')
   const [jobResults, setJobResults] = useState<JobCard[]>([])
@@ -56,7 +54,7 @@ export default function NewReportForm({ installer, visibleFields, defectsNoticeT
     setSubmitting(true)
     setError('')
     try {
-      const r = await axios.post('/api/install/reports', {
+      await axios.post('/api/install/reports', {
         jobId: job?.id || null,
         reportDate: date,
         percentComplete,
@@ -68,9 +66,6 @@ export default function NewReportForm({ installer, visibleFields, defectsNoticeT
         additionalNotes,
         photoPathnames: visibleFields.photos ? photoPathnames : [],
       })
-      const reportPhotos = visibleFields.photos ? photoPathnames.map(p => ({ id: p, blob_pathname: p })) : []
-      const report: EodReport = { ...r.data.report, job, installer: { id: installer.id, name: installer.name, photo_pathname: installer.photoPathname }, photos: reportPhotos }
-      await shareOrDraftReportEmail(report, { defectsNoticeText, emailSignoff: 'Harrows Install Team', internalCcAddress: '' })
       setDone(true)
       onSubmitted()
     } catch (e: any) {
@@ -84,7 +79,7 @@ export default function NewReportForm({ installer, visibleFields, defectsNoticeT
     return (
       <div className="bg-white border border-gray-200 rounded-xl p-6 text-center">
         <p className="text-sm font-semibold text-gray-900 mb-1">Report filed</p>
-        <p className="text-xs text-gray-500 mb-4">The report PDF should have opened in your share sheet (or downloaded, with an email draft) — send it to the client from there.</p>
+        <p className="text-xs text-gray-500 mb-4">The office will pick this up and send it on to the client.</p>
         <button onClick={reset} className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors">
           New report
         </button>
@@ -99,7 +94,7 @@ export default function NewReportForm({ installer, visibleFields, defectsNoticeT
         <p className="text-lg font-bold text-white mt-1">New install report</p>
       </div>
 
-      <p className="text-sm text-gray-500">Fill in today's install, then submit to file it and draft the client email.</p>
+      <p className="text-sm text-gray-500">Fill in today's install, then submit to file it — the office will send it on to the client.</p>
 
       <section className="bg-white border border-gray-200 rounded-xl p-4">
         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Job</label>
@@ -213,7 +208,7 @@ export default function NewReportForm({ installer, visibleFields, defectsNoticeT
 
       <button onClick={submit} disabled={submitting}
         className="w-full py-3 text-sm font-semibold bg-gray-900 text-white rounded-xl hover:bg-gray-700 disabled:opacity-50 transition-colors">
-        {submitting ? 'Submitting...' : 'Submit report & draft email'}
+        {submitting ? 'Submitting...' : 'Submit report'}
       </button>
     </div>
   )
