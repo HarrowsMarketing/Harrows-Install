@@ -55,6 +55,7 @@ export default function AddReportModal({ visibleFields, onClose, onSaved }: Prop
   const submit = async () => {
     if (!installerId) return setError('Please select who this report is for')
     if (!workDone.trim()) return setError('Please describe what was completed')
+    if (visibleFields.photos && photoPathnames.length === 0) return setError('Please attach at least one photo')
     setSubmitting(true)
     setError('')
     try {
@@ -187,7 +188,7 @@ export default function AddReportModal({ visibleFields, onClose, onSaved }: Prop
 
           {visibleFields.photos && (
             <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">End of day photos</label>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">End of day photos <span className="text-red-500 normal-case font-medium">(required)</span></label>
               <div className="mt-2">
                 <PhotoUpload reportKey={reportKey} pathnames={photoPathnames} onChange={setPhotoPathnames} />
               </div>

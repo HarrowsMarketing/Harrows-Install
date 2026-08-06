@@ -475,6 +475,13 @@ app.post('/api/install/reports', requireInstallerOrAdmin, async (req, res) => {
     const finalInstallerId = req.installer ? req.installer.id : installerId
     if (!finalInstallerId) return res.status(400).json({ error: 'installerId is required' })
 
+    // Photos are compulsory whenever the photos field itself is enabled — if an admin's
+    // turned the field off entirely via Settings, there's nothing to require.
+    const visibleFields = await getConfig('visible_fields', DEFAULT_VISIBLE_FIELDS)
+    if (visibleFields.photos && !(Array.isArray(photoPathnames) && photoPathnames.length)) {
+      return res.status(400).json({ error: 'At least one photo is required' })
+    }
+
     const r = await axios.post(sb('eod_reports'), {
       job_id: jobId || null,
       installer_id: finalInstallerId,

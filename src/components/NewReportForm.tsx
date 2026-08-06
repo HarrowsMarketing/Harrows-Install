@@ -53,6 +53,7 @@ export default function NewReportForm({ installer, visibleFields, onSubmitted }:
 
   const submit = async () => {
     if (!workDone.trim()) return setError('Please describe what was completed today')
+    if (visibleFields.photos && photoPathnames.length === 0) return setError('Please attach at least one photo')
     setSubmitting(true)
     setError('')
     try {
@@ -194,7 +195,7 @@ export default function NewReportForm({ installer, visibleFields, onSubmitted }:
 
       {visibleFields.photos && (
         <section className="bg-white border border-gray-200 rounded-xl p-4">
-          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">End of day photos</label>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">End of day photos <span className="text-red-500 normal-case font-medium">(required)</span></label>
           <div className="mt-2">
             <PhotoUpload reportKey={reportKey} pathnames={photoPathnames} onChange={setPhotoPathnames} />
           </div>
