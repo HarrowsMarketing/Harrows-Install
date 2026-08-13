@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
-import type { JobCard, VisibleFields } from '../types'
+import type { EodReport, JobCard, VisibleFields } from '../types'
 import type { InstallerInfo } from '../utils/installerSession'
 import PhotoUpload from './PhotoUpload'
 
@@ -21,6 +21,7 @@ export default function NewReportForm({ installer, visibleFields, onSubmitted }:
   const [jobSearch, setJobSearch] = useState('')
   const [jobResults, setJobResults] = useState<JobCard[]>([])
   const [job, setJob] = useState<JobCard | null>(null)
+  const [jobHistory, setJobHistory] = useState<EodReport[]>([])
   const [date, setDate] = useState(todayStr())
   const [percentComplete, setPercentComplete] = useState(0)
   const [workDone, setWorkDone] = useState('')
@@ -45,8 +46,18 @@ export default function NewReportForm({ installer, visibleFields, onSubmitted }:
     return () => clearTimeout(t)
   }, [jobSearch])
 
+  // Surfaces any reports already filed against this job (e.g. an earlier 50%-complete
+  // report) right where a follow-up is being written, instead of only being discoverable
+  // afterwards in My Reports.
+  useEffect(() => {
+    if (!job) { setJobHistory([]); return }
+    axios.get('/api/install/reports', { params: { search: job.job_number } })
+      .then(r => setJobHistory((r.data.reports as EodReport[]).filter(r => r.job_id === job.id)))
+      .catch(() => setJobHistory([]))
+  }, [job])
+
   const reset = () => {
-    setJob(null); setJobSearch(''); setDate(todayStr()); setPercentComplete(0)
+    setJob(null); setJobHistory([]); setJobSearch(''); setDate(todayStr()); setPercentComplete(0)
     setWorkDone(''); setWorkScheduledTomorrow(''); setProducts(''); setIssues(''); setSolutions('')
     setAdditionalNotes(''); setPhotoPathnames([]); setInternalNotes(''); setInternalPhotoPathnames([]); setDone(false)
   }
@@ -133,6 +144,20 @@ export default function NewReportForm({ installer, visibleFields, onSubmitted }:
           </div>
         )}
       </section>
+
+      {jobHistory.length > 0 && (
+        <section className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-2">Previous reports for this job</p>
+          <div className="space-y-1.5">
+            {jobHistory.map(r => (
+              <div key={r.id} className="flex items-center justify-between text-xs text-amber-900">
+                <span>{new Date(r.report_date + 'T00:00:00').toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' })} · {r.installer?.name || 'Unknown'}</span>
+                <span className="font-semibold">{r.percent_complete}% complete</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="bg-white border border-gray-200 rounded-xl p-4 grid grid-cols-2 gap-3">
         <div>

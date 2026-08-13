@@ -3,6 +3,7 @@ import axios from 'axios'
 import type { EodConfig, EodReport } from '../types'
 import ReportDetailModal from '../components/ReportDetailModal'
 import AddReportModal from '../components/AddReportModal'
+import EditReportModal from '../components/EditReportModal'
 
 type View = 'date' | 'job'
 
@@ -16,6 +17,7 @@ export default function ReportsTab() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<EodReport | null>(null)
+  const [editing, setEditing] = useState<EodReport | null>(null)
   const [view, setView] = useState<View>('date')
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set())
   const [collapsedJobs, setCollapsedJobs] = useState<Set<string>>(new Set())
@@ -23,6 +25,7 @@ export default function ReportsTab() {
   const [config, setConfig] = useState<EodConfig>({
     defectsNoticeText: '',
     defaultInstallerId: null, visibleFields: { products: true, issues_solutions: true, photos: true },
+    notificationRecipients: [],
   })
 
   const load = async (q = '') => {
@@ -210,6 +213,18 @@ export default function ReportsTab() {
           onMarkProcessed={() => markProcessed(selected.id)}
           canDelete
           onDelete={() => deleteReport(selected.id)}
+          canEdit
+          onEdit={() => { setEditing(selected); setSelected(null) }}
+        />
+      )}
+
+      {editing && (
+        <EditReportModal
+          report={editing}
+          visibleFields={config.visibleFields}
+          isAdmin
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(search) }}
         />
       )}
 

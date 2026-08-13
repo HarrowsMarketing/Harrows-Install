@@ -3,6 +3,7 @@ import cors from 'cors'
 import axios from 'axios'
 import crypto from 'crypto'
 import Anthropic from '@anthropic-ai/sdk'
+import nodemailer from 'nodemailer'
 import { list, issueSignedToken, presignUrl } from '@vercel/blob'
 import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client'
 
@@ -46,6 +47,54 @@ async function setConfig(key, value, updatedBy = '') {
 
 const isUuid = s => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
 const isValidPin = s => typeof s === 'string' && /^\d{6}$/.test(s)
+const isValidEmail = s => typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)
+
+// ── Report notification emails (admin-configured recipients, not the client) ──────
+
+// Same SMTP/Office365 transporter pattern as harrows-dashboard's api/sales/daily-email.js —
+// a distinct SMTP_* config here since this is a separate Vercel project/env.
+function mailTransporter() {
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.office365.com',
+    port: parseInt(process.env.SMTP_PORT || '587'),
+    secure: false,
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  })
+}
+
+// Fires immediately after a report is filed, to whoever's configured in Settings plus
+// any Clerk admin who's individually opted in — never to every admin/installer by
+// default. Failure here must never fail the report submission itself, so callers wrap
+// this in try/catch (same defensive pattern as logSignin).
+async function sendReportNotification(report) {
+  const [manual, optIns] = await Promise.all([
+    getConfig('notification_recipients', []),
+    getConfig('admin_notification_optins', {}),
+  ])
+  const manualEmails = (manual || []).map(r => r.email)
+  const optInEmails = Object.values(optIns || {}).filter(o => o?.enabled).map(o => o.email)
+  const emails = [...new Set([...manualEmails, ...optInEmails])].filter(isValidEmail)
+  if (!emails.length) return
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    console.error('report notification skipped: SMTP_USER/SMTP_PASS not configured')
+    return
+  }
+  const fromAddress = process.env.EMAIL_FROM || `"Harrows Install" <${process.env.SMTP_USER}>`
+  const dateLabel = new Date(report.report_date + 'T00:00:00').toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  const jobLabel = report.job ? `Job ${report.job.job_number} — ${report.job.project_name}` : 'No job selected'
+  const html = `
+    <p><strong>${jobLabel}</strong></p>
+    <p>${dateLabel} · ${report.installer?.name || 'Unknown installer'} · ${report.percent_complete}% complete</p>
+    <p style="white-space: pre-wrap;">${report.work_done}</p>
+    <p><a href="https://installs.harrows.co.nz/admin">View in Harrows Install</a></p>
+  `
+  await mailTransporter().sendMail({
+    from: fromAddress,
+    to: emails.join(', '),
+    subject: `New install report — ${jobLabel}`,
+    html,
+  })
+}
 
 // ── Job card scan (Claude vision extraction) ──────────────────────────────────
 
@@ -271,7 +320,7 @@ app.post('/api/install/jobs/scan', requireInstallerOrAdmin, async (req, res) => 
           },
           {
             type: 'text',
-            text: 'This is a job card document for a furniture install job. Extract: job number, project name, site address, billing company name, invoice-to contact name, invoice-to phone, invoice-to email, project manager name, project manager phone, project manager email, salesperson name, salesperson email. Use an empty string for any field not present on the document.',
+            text: 'This is a job card document for a furniture install job. Read the entire document carefully before answering, including small or lower-contrast printed text, tables, stamps, and handwritten annotations — not just the largest or boldest text on the page. Extract: job number, project name, site address, billing company name, invoice-to contact name, invoice-to phone, invoice-to email, project manager name, project manager phone, project manager email, salesperson name, salesperson email. Only use an empty string for a field after you have checked the whole document and it is genuinely not present — do not leave a field empty just because it is small or easy to miss.',
           },
         ],
       }],
@@ -505,9 +554,87 @@ app.post('/api/install/reports', requireInstallerOrAdmin, async (req, res) => {
       await axios.post(sb('eod_report_photos'), photoRows, { headers: sbH() })
     }
 
-    res.json({ report })
+    const fullReport = (await axios.get(sb('eod_reports', `${REPORT_SELECT}&id=eq.${report.id}&limit=1`), { headers: sbH() })).data?.[0] || report
+    try {
+      await sendReportNotification(fullReport)
+    } catch (e) {
+      console.error('report notification error', e.message)
+    }
+
+    res.json({ report: fullReport })
   } catch (e) {
     console.error('report create error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// Edit a report already on file. An installer session may only edit their own report;
+// a Clerk admin may edit any. A processed (email_sent) report can no longer be edited
+// at all — the client has already received it, so changing it after the fact would go
+// unnoticed rather than triggering a re-check.
+app.patch('/api/install/reports/:id', requireInstallerOrAdmin, async (req, res) => {
+  try {
+    if (!isUuid(req.params.id)) return res.status(400).json({ error: 'Invalid id' })
+    const existingRes = await axios.get(sb('eod_reports', `id=eq.${req.params.id}&limit=1`), { headers: sbH() })
+    const current = existingRes.data?.[0]
+    if (!current) return res.status(404).json({ error: 'Not found' })
+    if (req.installer && current.installer_id !== req.installer.id) return res.status(403).json({ error: 'Forbidden' })
+    if (current.email_sent) return res.status(403).json({ error: 'This report has already been processed and can no longer be edited.' })
+
+    const {
+      jobId, installerId, reportDate, percentComplete, workDone, workScheduledTomorrow,
+      products, issues, solutions, additionalNotes, photoPathnames,
+      internalNotes, internalPhotoPathnames,
+    } = req.body || {}
+    if (!reportDate || !workDone) return res.status(400).json({ error: 'reportDate and workDone are required' })
+
+    const visibleFields = await getConfig('visible_fields', DEFAULT_VISIBLE_FIELDS)
+    if (visibleFields.photos && !(Array.isArray(photoPathnames) && photoPathnames.length)) {
+      return res.status(400).json({ error: 'At least one photo is required' })
+    }
+
+    const patch = {
+      job_id: jobId || null,
+      report_date: reportDate,
+      percent_complete: percentComplete ?? 0,
+      work_done: workDone,
+      work_scheduled_tomorrow: workScheduledTomorrow || null,
+      products: products || null,
+      issues: issues || null,
+      solutions: solutions || null,
+      additional_notes: additionalNotes || null,
+      internal_notes: internalNotes || null,
+    }
+    // Only a Clerk admin (never a PIN session) may reassign who a report is filed under.
+    if (!req.installer && installerId) patch.installer_id = installerId
+    await axios.patch(sb('eod_reports', `id=eq.${req.params.id}`), patch, { headers: sbH() })
+
+    // Reconcile photos against the submitted final lists, split by is_internal — delete
+    // rows for pathnames no longer present, insert rows for newly added ones.
+    const photosRes = await axios.get(sb('eod_report_photos', `report_id=eq.${req.params.id}`), { headers: sbH() })
+    const existingPhotos = photosRes.data || []
+    const reconcilePhotos = async (submitted, isInternal) => {
+      const wanted = new Set(Array.isArray(submitted) ? submitted : [])
+      const currentRows = existingPhotos.filter(p => p.is_internal === isInternal)
+      const toDelete = currentRows.filter(p => !wanted.has(p.blob_pathname))
+      const currentPathnames = new Set(currentRows.map(p => p.blob_pathname))
+      const toInsert = [...wanted].filter(p => !currentPathnames.has(p))
+      if (toDelete.length) {
+        await axios.delete(sb('eod_report_photos', `id=in.(${toDelete.map(p => p.id).join(',')})`), { headers: sbH() })
+      }
+      if (toInsert.length) {
+        await axios.post(sb('eod_report_photos'),
+          toInsert.map(p => ({ report_id: req.params.id, blob_pathname: p, is_internal: isInternal })),
+          { headers: sbH() })
+      }
+    }
+    await reconcilePhotos(photoPathnames, false)
+    await reconcilePhotos(internalPhotoPathnames, true)
+
+    const r = await axios.get(sb('eod_reports', `${REPORT_SELECT}&id=eq.${req.params.id}&limit=1`), { headers: sbH() })
+    res.json({ report: r.data[0] })
+  } catch (e) {
+    console.error('report update error', e.message)
     res.status(500).json({ error: e.message })
   }
 })
@@ -582,12 +709,13 @@ const DEFAULT_VISIBLE_FIELDS = { products: true, issues_solutions: true, photos:
 
 app.get('/api/install/config', requireAdmin, async (req, res) => {
   try {
-    const [defectsNoticeText, defaultInstallerId, visibleFields] = await Promise.all([
+    const [defectsNoticeText, defaultInstallerId, visibleFields, notificationRecipients] = await Promise.all([
       getConfig('defects_notice_text', 'Should you encounter any defects, damages or items that need addressing, please let us know within 2 working days following the issue of this report.'),
       getConfig('default_installer_id', null),
       getConfig('visible_fields', DEFAULT_VISIBLE_FIELDS),
+      getConfig('notification_recipients', []),
     ])
-    res.json({ defectsNoticeText, defaultInstallerId, visibleFields })
+    res.json({ defectsNoticeText, defaultInstallerId, visibleFields, notificationRecipients })
   } catch (e) {
     console.error('config get error', e.message)
     res.status(500).json({ error: e.message })
@@ -596,16 +724,53 @@ app.get('/api/install/config', requireAdmin, async (req, res) => {
 
 app.patch('/api/install/config', requireAdmin, async (req, res) => {
   try {
-    const { defectsNoticeText, defaultInstallerId, visibleFields } = req.body || {}
+    const { defectsNoticeText, defaultInstallerId, visibleFields, notificationRecipients } = req.body || {}
+    if (notificationRecipients !== undefined) {
+      if (!Array.isArray(notificationRecipients) || notificationRecipients.some(r => !r?.name?.trim() || !isValidEmail(r?.email))) {
+        return res.status(400).json({ error: 'Each notification recipient needs a name and a valid email' })
+      }
+    }
     const updatedBy = req.clerkUser?.id || ''
     await Promise.all([
       defectsNoticeText !== undefined ? setConfig('defects_notice_text', defectsNoticeText, updatedBy) : null,
       defaultInstallerId !== undefined ? setConfig('default_installer_id', defaultInstallerId, updatedBy) : null,
       visibleFields !== undefined ? setConfig('visible_fields', { ...DEFAULT_VISIBLE_FIELDS, ...visibleFields }, updatedBy) : null,
+      notificationRecipients !== undefined ? setConfig('notification_recipients', notificationRecipients, updatedBy) : null,
     ].filter(Boolean))
     res.json({ ok: true })
   } catch (e) {
     console.error('config update error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// Each Clerk admin's own opt-in for report-submission emails — distinct from the shared
+// `notification_recipients` list in Settings, which any admin can edit for anyone. This is
+// self-service and defaults to off: an admin has to open this and tick it themselves.
+app.get('/api/install/my-notification-pref', requireAdmin, async (req, res) => {
+  try {
+    const optIns = await getConfig('admin_notification_optins', {})
+    res.json({ enabled: !!optIns[req.clerkUserId]?.enabled })
+  } catch (e) {
+    console.error('my-notification-pref get error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.patch('/api/install/my-notification-pref', requireAdmin, async (req, res) => {
+  try {
+    const enabled = !!req.body?.enabled
+    const optIns = await getConfig('admin_notification_optins', {})
+    optIns[req.clerkUserId] = {
+      name: clerkDisplayName(req.clerkUser) || '',
+      email: req.clerkUser?.email_addresses?.[0]?.email_address || '',
+      enabled,
+      updatedAt: new Date().toISOString(),
+    }
+    await setConfig('admin_notification_optins', optIns, req.clerkUserId)
+    res.json({ ok: true, enabled })
+  } catch (e) {
+    console.error('my-notification-pref update error', e.message)
     res.status(500).json({ error: e.message })
   }
 })

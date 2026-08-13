@@ -211,16 +211,23 @@ function drawContinuationHeader(doc: jsPDF, report: EodReport, variant: Variant,
   doc.setDrawColor(0).setTextColor(0)
 }
 
-// Printed at the bottom of every page of the client-facing job report — the internal
-// report doesn't need it, since it's never seen by the client.
-function drawFooter(doc: jsPDF, defectsNoticeText: string) {
-  if (!defectsNoticeText) return
-  doc.setDrawColor(...LINE).setLineWidth(0.2)
-  doc.line(M, PH - 18, PW - M, PH - 18)
-  doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(...MUTED)
-  const lines = doc.splitTextToSize(defectsNoticeText, CW)
-  doc.text(lines, M, PH - 14)
+// Printed once, inline, directly above the photos on the client-facing job report — bold
+// and rule-bracketed rather than a filled box (keeps this file's "match the factory job
+// card stationery, no filled colour blocks" look) so it reads as unmissable without
+// looking like the red "internal only" callout. Never shown on the internal report,
+// since that's never seen by the client anyway.
+function noticeBlock(doc: jsPDF, text: string, y: number): number {
+  doc.setDrawColor(...INK).setLineWidth(0.6)
+  doc.line(M, y, PW - M, y)
+  y += 5
+  doc.setFont('helvetica', 'bold').setFontSize(9.5).setTextColor(...INK)
+  const lines = doc.splitTextToSize(text, CW)
+  doc.text(lines, M, y)
+  y += lines.length * 4.6 + 3
+  doc.setDrawColor(...INK).setLineWidth(0.6)
+  doc.line(M, y, PW - M, y)
   doc.setTextColor(0)
+  return y + 7
 }
 
 async function buildReportPDF(report: EodReport, variant: Variant, defectsNoticeText: string): Promise<jsPDF> {
@@ -282,6 +289,11 @@ async function buildReportPDF(report: EodReport, variant: Variant, defectsNotice
     y = bodyText(doc, report.additional_notes, y)
   }
 
+  if (variant === 'job' && defectsNoticeText) {
+    y = checkPage(doc, y, 25)
+    y = noticeBlock(doc, defectsNoticeText, y)
+  }
+
   const clientPhotos = report.photos?.filter(p => !p.is_internal) ?? []
   if (clientPhotos.length) {
     y = checkPage(doc, y, 20)
@@ -311,7 +323,6 @@ async function buildReportPDF(report: EodReport, variant: Variant, defectsNotice
   for (let i = 1; i <= pages; i++) {
     doc.setPage(i)
     if (i > 1) drawContinuationHeader(doc, report, variant, i)
-    if (variant === 'job') drawFooter(doc, defectsNoticeText)
   }
 
   return doc

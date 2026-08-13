@@ -76,10 +76,16 @@ export interface VisibleFields {
   photos: boolean
 }
 
+export interface NotificationRecipient {
+  name: string
+  email: string
+}
+
 export interface EodConfig {
   defectsNoticeText: string
   defaultInstallerId: string | null
   visibleFields: VisibleFields
+  notificationRecipients: NotificationRecipient[]
 }
 
 export interface SigninLogEntry {

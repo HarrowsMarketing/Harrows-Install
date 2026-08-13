@@ -11,9 +11,11 @@ interface Props {
   canDelete?: boolean
   onDelete?: () => void
   canSendToClient?: boolean
+  canEdit?: boolean
+  onEdit?: () => void
 }
 
-export default function ReportDetailModal({ report, config, onClose, onMarkProcessed, canDelete, onDelete, canSendToClient = true }: Props) {
+export default function ReportDetailModal({ report, config, onClose, onMarkProcessed, canDelete, onDelete, canSendToClient = true, canEdit, onEdit }: Props) {
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({})
   const [generatingPdf, setGeneratingPdf] = useState(false)
 
@@ -67,6 +69,12 @@ export default function ReportDetailModal({ report, config, onClose, onMarkProce
           {report.solutions && <Field label="Solutions" value={report.solutions} />}
           {report.additional_notes && <Field label="Additional notes" value={report.additional_notes} />}
 
+          {config.defectsNoticeText && (
+            <div className="border-t-2 border-b-2 border-gray-900 py-3">
+              <p className="text-sm font-bold text-gray-900 whitespace-pre-wrap">{config.defectsNoticeText}</p>
+            </div>
+          )}
+
           {clientPhotos.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Photos</p>
@@ -94,6 +102,11 @@ export default function ReportDetailModal({ report, config, onClose, onMarkProce
         </div>
 
         <div className="px-5 py-4 border-t border-gray-100 flex flex-wrap gap-2">
+          {canEdit && !report.email_sent && onEdit && (
+            <button onClick={onEdit} className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              Edit
+            </button>
+          )}
           {canSendToClient && (
             <>
               <button onClick={downloadJobReport} disabled={generatingPdf} className="flex-1 px-3 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors">

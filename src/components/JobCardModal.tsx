@@ -21,7 +21,11 @@ function fromJob(job: JobCard): Form {
   }
 }
 
-const MAX_IMAGE_EDGE = 1600 // phone camera photos are easily 3000-4000px+ and 5-10MB — downscale before sending
+// Phone camera photos are easily 3000-4000px+ and 5-10MB — downscale before sending, but
+// not so aggressively that small printed fields (contact phone/email) blur past legibility
+// while the large/bold job number stays readable regardless — that mismatch was the likely
+// cause of the scan reliably picking up the job number but little else.
+const MAX_IMAGE_EDGE = 2200
 
 function readAsDataUrl(file: File | Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -56,7 +60,7 @@ async function fileToBase64(file: File): Promise<{ mediaType: string; data: stri
   if (!ctx) return { mediaType: file.type, data: dataUrl.split(',')[1] }
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
 
-  const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.85)
+  const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.92)
   return { mediaType: 'image/jpeg', data: resizedDataUrl.split(',')[1] }
 }
 

@@ -140,7 +140,7 @@ export default function InstallerApp() {
           />
         )}
         {tab === 'Job Cards' && <InstallerJobCards />}
-        {tab === 'My Reports' && <InstallerReportsView refreshKey={reportsRefreshKey} />}
+        {tab === 'My Reports' && <InstallerReportsView refreshKey={reportsRefreshKey} installer={installer} visibleFields={visibleFields} />}
       </main>
 
       {showProfile && (
