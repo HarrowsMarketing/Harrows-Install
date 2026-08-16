@@ -115,43 +115,36 @@ const JOB_CARD_SCHEMA = {
 }
 
 // ── Clerk auth (admin/office shell) — same verification pattern as Harrows-dashboard's ──
-// requireDept(dept), reusing the same Clerk instance/keys so office staff use their
-// existing Harrows-dashboard login (just need 'install' added to allowedDepts).
+// Any office staff member with an active Clerk login (the same shared instance as
+// Harrows-dashboard) can access the Install app's admin/office shell — no per-dept
+// allowedDepts gate. Access here isn't managed from Harrows-dashboard's /admin at all.
 
 const CLERK_SECRET = process.env.CLERK_SECRET_KEY
 const CLERK_API = 'https://api.clerk.com/v1'
 const clerkH = () => ({ Authorization: `Bearer ${CLERK_SECRET}`, 'Content-Type': 'application/json' })
 
-function requireDept(dept) {
-  return async function (req, res, next) {
-    if (!CLERK_SECRET) return res.status(503).json({ error: 'Auth not configured' })
-    const raw = (req.headers.authorization || '').replace('Bearer ', '').trim()
-    if (!raw) return res.status(401).json({ error: 'Unauthorized' })
-    try {
-      const parts = raw.split('.')
-      if (parts.length !== 3) return res.status(401).json({ error: 'Invalid token' })
-      const claims = JSON.parse(Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString())
-      const [sessionRes, userRes] = await Promise.all([
-        axios.get(`${CLERK_API}/sessions/${claims.sid}`, { headers: clerkH() }),
-        axios.get(`${CLERK_API}/users/${claims.sub}`, { headers: clerkH() }),
-      ])
-      if (sessionRes.data.status !== 'active') return res.status(401).json({ error: 'Session expired' })
-      if (sessionRes.data.user_id !== claims.sub) return res.status(401).json({ error: 'Token mismatch' })
-      const meta = userRes.data.public_metadata ?? {}
-      const isAdminRole = meta.role === 'admin' || meta.role === 'super_admin'
-      if (!isAdminRole && !(meta.allowedDepts ?? []).includes(dept)) return res.status(403).json({ error: 'Forbidden' })
-      if ((meta.blockedDepts ?? []).includes(dept)) return res.status(403).json({ error: 'Forbidden' })
-      req.clerkUser = userRes.data
-      req.clerkUserId = claims.sub
-      next()
-    } catch (e) {
-      console.error(`${dept} auth error`, e.message)
-      res.status(401).json({ error: 'Invalid session' })
-    }
+async function requireAdmin(req, res, next) {
+  if (!CLERK_SECRET) return res.status(503).json({ error: 'Auth not configured' })
+  const raw = (req.headers.authorization || '').replace('Bearer ', '').trim()
+  if (!raw) return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    const parts = raw.split('.')
+    if (parts.length !== 3) return res.status(401).json({ error: 'Invalid token' })
+    const claims = JSON.parse(Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString())
+    const [sessionRes, userRes] = await Promise.all([
+      axios.get(`${CLERK_API}/sessions/${claims.sid}`, { headers: clerkH() }),
+      axios.get(`${CLERK_API}/users/${claims.sub}`, { headers: clerkH() }),
+    ])
+    if (sessionRes.data.status !== 'active') return res.status(401).json({ error: 'Session expired' })
+    if (sessionRes.data.user_id !== claims.sub) return res.status(401).json({ error: 'Token mismatch' })
+    req.clerkUser = userRes.data
+    req.clerkUserId = claims.sub
+    next()
+  } catch (e) {
+    console.error('admin auth error', e.message)
+    res.status(401).json({ error: 'Invalid session' })
   }
 }
-
-const requireAdmin = requireDept('install')
 
 function clerkDisplayName(user) {
   if (!user) return null
