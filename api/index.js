@@ -797,21 +797,4 @@ app.get('/api/install/signin-log', requireAdmin, async (req, res) => {
   }
 })
 
-app.get('/api/_debug_smtp', async (req, res) => {
-  const present = {
-    SMTP_HOST: !!process.env.SMTP_HOST,
-    SMTP_PORT: !!process.env.SMTP_PORT,
-    SMTP_USER: !!process.env.SMTP_USER,
-    SMTP_PASS: !!process.env.SMTP_PASS,
-    EMAIL_FROM: !!process.env.EMAIL_FROM,
-  }
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return res.json({ present, verify: 'skipped: SMTP_USER/SMTP_PASS missing' })
-  try {
-    await mailTransporter().verify()
-    res.json({ present, verify: 'ok' })
-  } catch (e) {
-    res.json({ present, verify: 'failed', error: e.message })
-  }
-})
-
 export default app
