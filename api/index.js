@@ -717,6 +717,7 @@ app.get('/api/install/config', requireAdmin, async (req, res) => {
 
 app.patch('/api/install/config', requireAdmin, async (req, res) => {
   try {
+    console.error('DEBUG config PATCH body:', JSON.stringify(req.body))
     const { defectsNoticeText, defaultInstallerId, visibleFields, notificationRecipients } = req.body || {}
     if (notificationRecipients !== undefined) {
       if (!Array.isArray(notificationRecipients)) {
