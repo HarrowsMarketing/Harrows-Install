@@ -717,7 +717,6 @@ app.get('/api/install/config', requireAdmin, async (req, res) => {
 
 app.patch('/api/install/config', requireAdmin, async (req, res) => {
   try {
-    console.error('DEBUG config PATCH body:', JSON.stringify(req.body))
     const { defectsNoticeText, defaultInstallerId, visibleFields, notificationRecipients } = req.body || {}
     if (notificationRecipients !== undefined) {
       if (!Array.isArray(notificationRecipients)) {
@@ -738,29 +737,6 @@ app.patch('/api/install/config', requireAdmin, async (req, res) => {
     res.json({ ok: true })
   } catch (e) {
     console.error('config update error', e.message)
-    res.status(500).json({ error: e.message })
-  }
-})
-
-app.get('/api/_debug_null_config', async (req, res) => {
-  try {
-    await setConfig('default_installer_id', null, 'debug')
-    res.json({ ok: true })
-  } catch (e) {
-    res.status(200).json({ failed: true, status: e.response?.status, data: e.response?.data, message: e.message })
-  }
-})
-
-app.get('/api/_debug_notif_recipients', async (req, res) => {
-  try {
-    const stored = await getConfig('notification_recipients', [])
-    const analysis = (Array.isArray(stored) ? stored : []).map(r => ({
-      raw: r,
-      nameOk: !!r?.name?.trim(),
-      emailOk: isValidEmail(r?.email),
-    }))
-    res.json({ isArray: Array.isArray(stored), length: Array.isArray(stored) ? stored.length : null, stored, analysis })
-  } catch (e) {
     res.status(500).json({ error: e.message })
   }
 })
