@@ -742,6 +742,15 @@ app.patch('/api/install/config', requireAdmin, async (req, res) => {
   }
 })
 
+app.get('/api/_debug_null_config', async (req, res) => {
+  try {
+    await setConfig('default_installer_id', null, 'debug')
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(200).json({ failed: true, status: e.response?.status, data: e.response?.data, message: e.message })
+  }
+})
+
 app.get('/api/_debug_notif_recipients', async (req, res) => {
   try {
     const stored = await getConfig('notification_recipients', [])
