@@ -719,8 +719,12 @@ app.patch('/api/install/config', requireAdmin, async (req, res) => {
   try {
     const { defectsNoticeText, defaultInstallerId, visibleFields, notificationRecipients } = req.body || {}
     if (notificationRecipients !== undefined) {
-      if (!Array.isArray(notificationRecipients) || notificationRecipients.some(r => !r?.name?.trim() || !isValidEmail(r?.email))) {
-        return res.status(400).json({ error: 'Each notification recipient needs a name and a valid email' })
+      if (!Array.isArray(notificationRecipients)) {
+        return res.status(400).json({ error: `notificationRecipients was not an array: ${JSON.stringify(notificationRecipients)}` })
+      }
+      const bad = notificationRecipients.filter(r => !r?.name?.trim() || !isValidEmail(r?.email))
+      if (bad.length > 0) {
+        return res.status(400).json({ error: `Invalid recipient(s): ${JSON.stringify(bad)}` })
       }
     }
     const updatedBy = req.clerkUser?.id || ''
@@ -733,6 +737,20 @@ app.patch('/api/install/config', requireAdmin, async (req, res) => {
     res.json({ ok: true })
   } catch (e) {
     console.error('config update error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/api/_debug_notif_recipients', async (req, res) => {
+  try {
+    const stored = await getConfig('notification_recipients', [])
+    const analysis = (Array.isArray(stored) ? stored : []).map(r => ({
+      raw: r,
+      nameOk: !!r?.name?.trim(),
+      emailOk: isValidEmail(r?.email),
+    }))
+    res.json({ isArray: Array.isArray(stored), length: Array.isArray(stored) ? stored.length : null, stored, analysis })
+  } catch (e) {
     res.status(500).json({ error: e.message })
   }
 })
