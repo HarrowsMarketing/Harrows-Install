@@ -53,13 +53,33 @@ const isValidEmail = s => typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.
 
 // Same SMTP/Office365 transporter pattern as harrows-dashboard's api/sales/daily-email.js —
 // a distinct SMTP_* config here since this is a separate Vercel project/env.
-function mailTransporter() {
+function mailTransporter(user, pass) {
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST || 'smtp.office365.com',
     port: parseInt(process.env.SMTP_PORT || '587'),
     secure: false,
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    auth: { user, pass },
   })
+}
+
+// SMTP_USER_BACKUP/SMTP_PASS_BACKUP (optional) is retried automatically if the
+// primary account fails to authenticate/send — same fragility class as the
+// sales@harrows.co.nz / departed-employee-mailbox failures this app has already
+// hit once. Recipients only ever see EMAIL_FROM (reporting@harrows.co.nz)
+// regardless of which account actually sent it.
+async function sendMailWithFallback(mailOptions) {
+  const hasPrimary = process.env.SMTP_USER && process.env.SMTP_PASS
+  const hasBackup = process.env.SMTP_USER_BACKUP && process.env.SMTP_PASS_BACKUP
+  if (!hasPrimary && hasBackup) {
+    return mailTransporter(process.env.SMTP_USER_BACKUP, process.env.SMTP_PASS_BACKUP).sendMail(mailOptions)
+  }
+  try {
+    await mailTransporter(process.env.SMTP_USER, process.env.SMTP_PASS).sendMail(mailOptions)
+  } catch (primaryErr) {
+    if (!hasBackup) throw primaryErr
+    console.error('report notification: primary SMTP account failed, retrying via backup', primaryErr.message)
+    await mailTransporter(process.env.SMTP_USER_BACKUP, process.env.SMTP_PASS_BACKUP).sendMail(mailOptions)
+  }
 }
 
 // Fires immediately after a report is filed, to whoever's configured in Settings plus
@@ -75,11 +95,13 @@ async function sendReportNotification(report) {
   const optInEmails = Object.values(optIns || {}).filter(o => o?.enabled).map(o => o.email)
   const emails = [...new Set([...manualEmails, ...optInEmails])].filter(isValidEmail)
   if (!emails.length) return
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.error('report notification skipped: SMTP_USER/SMTP_PASS not configured')
+  const hasPrimary = process.env.SMTP_USER && process.env.SMTP_PASS
+  const hasBackup = process.env.SMTP_USER_BACKUP && process.env.SMTP_PASS_BACKUP
+  if (!hasPrimary && !hasBackup) {
+    console.error('report notification skipped: no SMTP account configured (primary or backup)')
     return
   }
-  const fromAddress = process.env.EMAIL_FROM || `"Harrows Install" <${process.env.SMTP_USER}>`
+  const fromAddress = process.env.EMAIL_FROM || `"Harrows Install" <${process.env.SMTP_USER || process.env.SMTP_USER_BACKUP}>`
   const dateLabel = new Date(report.report_date + 'T00:00:00').toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
   const jobLabel = report.job ? `Job ${report.job.job_number} — ${report.job.project_name}` : 'No job selected'
   const html = `
@@ -88,7 +110,7 @@ async function sendReportNotification(report) {
     <p style="white-space: pre-wrap;">${report.work_done}</p>
     <p><a href="https://installs.harrows.co.nz/admin">View in Harrows Install</a></p>
   `
-  await mailTransporter().sendMail({
+  await sendMailWithFallback({
     from: fromAddress,
     to: emails.join(', '),
     subject: `New install report — ${jobLabel}`,
