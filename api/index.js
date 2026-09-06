@@ -63,10 +63,10 @@ function mailTransporter(user, pass) {
 }
 
 // SMTP_USER_BACKUP/SMTP_PASS_BACKUP (optional) is retried automatically if the
-// primary account fails to authenticate/send — same fragility class as the
-// sales@harrows.co.nz / departed-employee-mailbox failures this app has already
-// hit once. Recipients only ever see EMAIL_FROM (reporting@harrows.co.nz)
-// regardless of which account actually sent it.
+// primary account fails to authenticate/send — a single named account being
+// the sole sender is a fragile single point of failure, same class of issue
+// as sales@harrows.co.nz losing its connection. Recipients only ever see
+// EMAIL_FROM (reporting@harrows.co.nz) regardless of which account actually sent it.
 async function sendMailWithFallback(mailOptions) {
   const hasPrimary = process.env.SMTP_USER && process.env.SMTP_PASS
   const hasBackup = process.env.SMTP_USER_BACKUP && process.env.SMTP_PASS_BACKUP
