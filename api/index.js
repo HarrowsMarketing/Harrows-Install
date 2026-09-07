@@ -3,7 +3,6 @@ import cors from 'cors'
 import axios from 'axios'
 import crypto from 'crypto'
 import Anthropic from '@anthropic-ai/sdk'
-import nodemailer from 'nodemailer'
 import { list, issueSignedToken, presignUrl } from '@vercel/blob'
 import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client'
 
@@ -51,35 +50,54 @@ const isValidEmail = s => typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.
 
 // ── Report notification emails (admin-configured recipients, not the client) ──────
 
-// Same SMTP/Office365 transporter pattern as harrows-dashboard's api/sales/daily-email.js —
-// a distinct SMTP_* config here since this is a separate Vercel project/env.
-function mailTransporter(user, pass) {
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.office365.com',
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    secure: false,
-    auth: { user, pass },
+// Sent via Microsoft Graph (app-only), not SMTP. Legacy SMTP AUTH with a
+// personal account/password doesn't work on this tenant — Conditional Access
+// blocks basic auth outright, independent of any per-mailbox "Authenticated
+// SMTP" setting (found 2026-09-07 chasing repeated 535 5.7.139 errors). Graph's
+// app-only sendMail uses OAuth2 client-credentials instead, which Conditional
+// Access policies targeting legacy auth don't touch, and sends genuinely as
+// reporting@harrows.co.nz itself — no personal account/password involved, so
+// nobody leaving or changing their password can break this again. Same
+// MS_TENANT_ID/MS_CLIENT_ID/MS_CLIENT_SECRET Azure AD app registration pattern
+// as harrows-dashboard's api/sales/daily-email.js (reuse the same app rather
+// than creating a second one) — it needs the Mail.Send application permission
+// (admin-consented), ideally restricted via an Exchange Online Application
+// Access Policy to only reporting@harrows.co.nz, since app-only Mail.Send
+// otherwise permits sending as any mailbox in the tenant.
+let _graphToken = { value: null, exp: 0 }
+async function getGraphToken() {
+  const tenant = process.env.MS_TENANT_ID, clientId = process.env.MS_CLIENT_ID, secret = process.env.MS_CLIENT_SECRET
+  if (!tenant || !clientId || !secret) throw new Error('Microsoft Graph not configured')
+  if (_graphToken.value && Date.now() < _graphToken.exp - 60000) return _graphToken.value
+  const body = new URLSearchParams({
+    client_id: clientId, client_secret: secret,
+    scope: 'https://graph.microsoft.com/.default', grant_type: 'client_credentials',
   })
+  const r = await axios.post(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
+    body.toString(), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
+  _graphToken = { value: r.data.access_token, exp: Date.now() + (r.data.expires_in || 3600) * 1000 }
+  return _graphToken.value
 }
 
-// SMTP_USER_BACKUP/SMTP_PASS_BACKUP (optional) is retried automatically if the
-// primary account fails to authenticate/send — a single named account being
-// the sole sender is a fragile single point of failure, same class of issue
-// as sales@harrows.co.nz losing its connection. Recipients only ever see
-// EMAIL_FROM (reporting@harrows.co.nz) regardless of which account actually sent it.
-async function sendMailWithFallback(mailOptions) {
-  const hasPrimary = process.env.SMTP_USER && process.env.SMTP_PASS
-  const hasBackup = process.env.SMTP_USER_BACKUP && process.env.SMTP_PASS_BACKUP
-  if (!hasPrimary && hasBackup) {
-    return mailTransporter(process.env.SMTP_USER_BACKUP, process.env.SMTP_PASS_BACKUP).sendMail(mailOptions)
-  }
-  try {
-    await mailTransporter(process.env.SMTP_USER, process.env.SMTP_PASS).sendMail(mailOptions)
-  } catch (primaryErr) {
-    if (!hasBackup) throw primaryErr
-    console.error('report notification: primary SMTP account failed, retrying via backup', primaryErr.message)
-    await mailTransporter(process.env.SMTP_USER_BACKUP, process.env.SMTP_PASS_BACKUP).sendMail(mailOptions)
-  }
+// EMAIL_FROM is still "Display Name <address>" — extract just the address,
+// since Graph sends as whichever mailbox the URL targets (no per-message
+// display-name override; that comes from the mailbox's own Entra ID config).
+function extractSenderAddress() {
+  const raw = process.env.EMAIL_FROM || ''
+  const m = /<([^>]+)>/.exec(raw)
+  return (m ? m[1] : raw).trim() || 'reporting@harrows.co.nz'
+}
+
+async function sendGraphMail({ to, subject, html }) {
+  const token = await getGraphToken()
+  const sender = extractSenderAddress()
+  const toRecipients = to.split(',').map(s => s.trim()).filter(Boolean)
+    .map(address => ({ emailAddress: { address } }))
+  await axios.post(
+    `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`,
+    { message: { subject, body: { contentType: 'HTML', content: html }, toRecipients }, saveToSentItems: false },
+    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+  )
 }
 
 // Fires immediately after a report is filed, to whoever's configured in Settings plus
@@ -95,13 +113,6 @@ async function sendReportNotification(report) {
   const optInEmails = Object.values(optIns || {}).filter(o => o?.enabled).map(o => o.email)
   const emails = [...new Set([...manualEmails, ...optInEmails])].filter(isValidEmail)
   if (!emails.length) return
-  const hasPrimary = process.env.SMTP_USER && process.env.SMTP_PASS
-  const hasBackup = process.env.SMTP_USER_BACKUP && process.env.SMTP_PASS_BACKUP
-  if (!hasPrimary && !hasBackup) {
-    console.error('report notification skipped: no SMTP account configured (primary or backup)')
-    return
-  }
-  const fromAddress = process.env.EMAIL_FROM || `"Harrows Install" <${process.env.SMTP_USER || process.env.SMTP_USER_BACKUP}>`
   const dateLabel = new Date(report.report_date + 'T00:00:00').toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
   const jobLabel = report.job ? `Job ${report.job.job_number} — ${report.job.project_name}` : 'No job selected'
   const html = `
@@ -110,8 +121,7 @@ async function sendReportNotification(report) {
     <p style="white-space: pre-wrap;">${report.work_done}</p>
     <p><a href="https://installs.harrows.co.nz/admin">View in Harrows Install</a></p>
   `
-  await sendMailWithFallback({
-    from: fromAddress,
+  await sendGraphMail({
     to: emails.join(', '),
     subject: `New install report — ${jobLabel}`,
     html,
