@@ -833,4 +833,21 @@ app.get('/api/install/signin-log', requireAdmin, async (req, res) => {
   }
 })
 
+// TEMP debug route — check who's actually configured to receive report notifications,
+// without sending anything. Delete before next real commit.
+app.get('/api/_debug_notification_recipients', async (req, res) => {
+  try {
+    const [manual, optIns] = await Promise.all([
+      getConfig('notification_recipients', []),
+      getConfig('admin_notification_optins', {}),
+    ])
+    const manualEmails = (manual || []).map(r => r.email)
+    const optInEmails = Object.values(optIns || {}).filter(o => o?.enabled).map(o => o.email)
+    const emails = [...new Set([...manualEmails, ...optInEmails])].filter(isValidEmail)
+    res.json({ manual, optIns, resolvedEmails: emails })
+  } catch (e) {
+    res.json({ error: e.message })
+  }
+})
+
 export default app
