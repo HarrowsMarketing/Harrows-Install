@@ -841,9 +841,9 @@ app.get('/api/_debug_mail', async (req, res) => {
       subject: 'Test — Harrows Install Graph mail',
       html: '<p>Test send via Microsoft Graph app-only sendMail.</p>',
     })
-    res.json({ ok: true })
+    res.json({ ok: true, sender: extractSenderAddress(), emailFromRaw: process.env.EMAIL_FROM || null })
   } catch (e) {
-    res.json({ ok: false, error: e.message, graphError: e.response?.data })
+    res.json({ ok: false, error: e.message, graphError: e.response?.data, sender: extractSenderAddress(), emailFromRaw: process.env.EMAIL_FROM || null })
   }
 })
 
