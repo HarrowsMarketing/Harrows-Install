@@ -833,18 +833,4 @@ app.get('/api/install/signin-log', requireAdmin, async (req, res) => {
   }
 })
 
-// TEMP debug route — verify Graph mail send config end-to-end. Delete before next real commit.
-app.get('/api/_debug_mail', async (req, res) => {
-  try {
-    await sendGraphMail({
-      to: req.query.to || 'rocky@harrows.co.nz',
-      subject: 'Test — Harrows Install Graph mail',
-      html: '<p>Test send via Microsoft Graph app-only sendMail.</p>',
-    })
-    res.json({ ok: true, sender: extractSenderAddress(), emailFromRaw: process.env.EMAIL_FROM || null })
-  } catch (e) {
-    res.json({ ok: false, error: e.message, graphError: e.response?.data, sender: extractSenderAddress(), emailFromRaw: process.env.EMAIL_FROM || null })
-  }
-})
-
 export default app
