@@ -6,30 +6,30 @@ import type { EodReport } from '../types'
 // Styled to match Harrows' actual factory job card stationery (see reference PDF Rocky
 // supplied) — plain white background, just the logo up top (no letterhead address block),
 // no filled colour blocks, thin grey rules instead of cards/shading.
-const PW = 210, PH = 297, M = 14, CW = 182
-const INK: [number, number, number] = [17, 24, 39]
-const MUTED: [number, number, number] = [107, 114, 128]
-const LINE: [number, number, number] = [209, 213, 219]
-const HEADER_FILL: [number, number, number] = [245, 245, 246]
+export const PW = 210, PH = 297, M = 14, CW = 182
+export const INK: [number, number, number] = [17, 24, 39]
+export const MUTED: [number, number, number] = [107, 114, 128]
+export const LINE: [number, number, number] = [209, 213, 219]
+export const HEADER_FILL: [number, number, number] = [245, 245, 246]
 const RED: [number, number, number] = [185, 28, 28]
 const RED_FILL: [number, number, number] = [254, 242, 242]
 
-const LOGO_SRC = '/Harrows_Logo2023_Wordmark_Charcoal_R_RGB.jpg'
-const LOGO_ASPECT = 1241 / 6250 // native pixel dimensions of the wordmark asset
+export const LOGO_SRC = '/Harrows_Logo2023_Wordmark_Charcoal_R_RGB.jpg'
+export const LOGO_ASPECT = 1241 / 6250 // native pixel dimensions of the wordmark asset
 
 type Variant = 'job' | 'internal'
 
-function checkPage(doc: jsPDF, y: number, needed = 30): number {
+export function checkPage(doc: jsPDF, y: number, needed = 30): number {
   if (y + needed > PH - 22) { doc.addPage(); return 22 }
   return y
 }
-function sectionLabel(doc: jsPDF, text: string, y: number, color: [number, number, number] = INK): number {
+export function sectionLabel(doc: jsPDF, text: string, y: number, color: [number, number, number] = INK): number {
   doc.setFont('helvetica', 'bold').setFontSize(9).setTextColor(...color)
   doc.text(text.toUpperCase(), M, y, { charSpace: 0.3 })
   doc.setTextColor(0)
   return y + 4.5
 }
-function bodyText(doc: jsPDF, text: string, y: number): number {
+export function bodyText(doc: jsPDF, text: string, y: number): number {
   doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(...INK)
   const lines = doc.splitTextToSize(text, CW)
   doc.text(lines, M, y)
@@ -72,7 +72,7 @@ function fieldColumn(doc: jsPDF, y: number, rows: { label: string; value: string
   return fy
 }
 
-function photoImage(doc: jsPDF, imgData: string, y: number, borderColor: [number, number, number] = LINE, maxH = 90): number {
+export function photoImage(doc: jsPDF, imgData: string, y: number, borderColor: [number, number, number] = LINE, maxH = 90): number {
   // Fit the image within the box preserving its own aspect ratio instead of stretching
   // it to a fixed box — a portrait phone photo forced into a wide fixed box came out
   // squished.
@@ -150,7 +150,7 @@ function drawAvatar(doc: jsPDF, imgData: string, cx: number, cy: number, r: numb
   try { doc.addImage(imgData, 'PNG', cx - r, cy - r, r * 2, r * 2) } catch { /* skip an image that fails to decode */ }
 }
 
-async function fetchAsDataUrl(url: string): Promise<string | null> {
+export async function fetchAsDataUrl(url: string): Promise<string | null> {
   try {
     const resp = await fetch(url)
     const blob = await resp.blob()
@@ -165,7 +165,7 @@ async function fetchAsDataUrl(url: string): Promise<string | null> {
   }
 }
 
-async function fetchPhotoAsDataUrl(pathname: string): Promise<string | null> {
+export async function fetchPhotoAsDataUrl(pathname: string): Promise<string | null> {
   try {
     const r = await axios.get('/api/install/photos/url', { params: { pathname } })
     return await fetchAsDataUrl(r.data.url)

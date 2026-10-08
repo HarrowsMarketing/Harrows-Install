@@ -833,4 +833,598 @@ app.get('/api/install/signin-log', requireAdmin, async (req, res) => {
   }
 })
 
+// ── Returns — furniture coming back to the Timaru factory ─────────────────────
+// Usable from both shells (office Clerk session or installer PIN session). A return
+// is created with only job info + reason; every other section is filled in later,
+// by whoever does that step, via PATCH. Status derives from what's been filled in
+// (see computeReturnStatus) unless someone overrides it manually.
+
+const RETURN_REASONS = ['Freight damage', 'Site damage', 'Manufacturing issue', 'Incorrect item', 'Warranty', 'Loan gear', 'Other']
+const RETURN_ACTIONS = ['Repair', 'Replace', 'Rework', 'Inspect', 'Return to stock', 'Dispose', 'Other']
+const RETURN_PRIORITIES = ['urgent', 'high', 'normal']
+const RETURN_STATUSES = ['logged', 'freight_booked', 'in_transit', 'received', 'completed']
+const RETURN_STATUS_LABELS = { logged: 'Logged', freight_booked: 'Freight booked', in_transit: 'In transit', received: 'Received at factory', completed: 'Completed' }
+const RETURN_EVENTS = ['new_return', 'freight_booked', 'overdue', 'received', 'completed', 'urgent_logged']
+const DEFAULT_RETURNS_STAFF = ['Matt', 'Ollie', 'Fletcher', 'Taryn']
+const RETURNS_APP_URL = 'https://installs.harrows.co.nz'
+
+// Text/date columns a client may write directly (snake_case, same names as the DB).
+const RETURN_TEXT_FIELDS = [
+  'original_job_number', 'original_job_name', 'site_address', 'new_so_number',
+  'issue_description', 'requested_by', 'freight_company', 'freight_docket', 'pickup_location',
+  'received_by', 'factory_location', 'arrival_damage', 'responsible_person',
+]
+const RETURN_DATE_FIELDS = ['required_by', 'expected_pickup_date', 'estimated_arrival_date', 'date_received']
+const RETURN_SELECT = 'select=*,job:job_cards(id,job_number,project_name,address),photos:return_photos(id,blob_pathname,kind,created_at)&photos.order=created_at.asc'
+
+// Dates in this app are NZ calendar days (the factory is in Timaru), not UTC.
+const nzToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })
+const isIsoDate = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)
+
+function computeReturnStatus(row) {
+  if (row.completed_at) return 'completed'
+  if (row.date_received) return 'received'
+  if (row.expected_pickup_date && row.expected_pickup_date <= nzToday()) return 'in_transit'
+  if (row.freight_company || row.freight_docket) return 'freight_booked'
+  return 'logged'
+}
+const effectiveReturnStatus = row => row.completed_at ? 'completed' : (row.status_manual && row.status ? row.status : computeReturnStatus(row))
+const isReturnOverdue = row => !row.completed_at && !row.date_received && !!row.estimated_arrival_date && row.estimated_arrival_date < nzToday()
+
+// One wildcard read token per instance, presigned locally per photo — a per-photo
+// issueSignedToken() round trip for every thumbnail on the list would be far too slow.
+let _blobReadToken = { token: null, exp: 0 }
+async function blobReadToken() {
+  if (_blobReadToken.token && Date.now() < _blobReadToken.exp - 5 * 60 * 1000) return _blobReadToken.token
+  const validUntil = Date.now() + 60 * 60 * 1000
+  const token = await issueSignedToken({ operations: ['get'], validUntil })
+  _blobReadToken = { token, exp: validUntil }
+  return token
+}
+async function signedPhotoUrl(pathname) {
+  try {
+    const { presignedUrl } = await presignUrl(await blobReadToken(), { pathname, operation: 'get', access: 'private' })
+    return presignedUrl
+  } catch (e) {
+    console.error('photo presign error', e.message)
+    return null // the client falls back to /api/install/photos/url per photo
+  }
+}
+
+async function decorateReturn(row) {
+  const photos = await Promise.all((row.photos || []).map(async p => ({ ...p, url: await signedPhotoUrl(p.blob_pathname) })))
+  return { ...row, photos, status: effectiveReturnStatus(row), status_auto: computeReturnStatus(row), overdue: isReturnOverdue(row) }
+}
+
+async function fetchReturn(id, withActivity = false) {
+  const select = withActivity ? `${RETURN_SELECT},activity:return_activity(id,actor,action,changes,created_at)&activity.order=created_at.desc` : RETURN_SELECT
+  const r = await axios.get(sb('returns', `${select}&id=eq.${id}&limit=1`), { headers: sbH() })
+  return r.data?.[0] || null
+}
+
+const returnActor = req => req.installer?.name || clerkDisplayName(req.clerkUser) || null
+
+async function logReturnActivity(returnId, actor, action, changes = null) {
+  try {
+    await axios.post(sb('return_activity'), { return_id: returnId, actor, action, changes }, { headers: sbH() })
+  } catch (e) {
+    console.error('return activity log error', e.message)
+  }
+}
+
+// "Remembers" a newly typed staff name / freight company / factory location so it's in the
+// dropdown next time. Lists live in eod_config.
+async function rememberOption(key, value, defaults = []) {
+  const v = String(value || '').trim()
+  if (!v) return
+  const list = await getConfig(key, defaults)
+  if (list.some(x => x.toLowerCase() === v.toLowerCase())) return
+  await setConfig(key, [...list, v], 'returns')
+}
+async function rememberReturnOptions(fields) {
+  await Promise.all([
+    rememberOption('returns_staff_names', fields.requested_by, DEFAULT_RETURNS_STAFF),
+    rememberOption('returns_staff_names', fields.received_by, DEFAULT_RETURNS_STAFF),
+    rememberOption('returns_staff_names', fields.responsible_person, DEFAULT_RETURNS_STAFF),
+    rememberOption('returns_freight_companies', fields.freight_company),
+    rememberOption('returns_factory_locations', fields.factory_location),
+  ]).catch(e => console.error('remember option error', e.message))
+}
+
+function validateReturnItems(items) {
+  if (items === undefined) return undefined
+  if (!Array.isArray(items)) throw new Error('items must be an array')
+  if (items.length > 3) throw new Error('A return can have at most 3 items')
+  return items.map(it => {
+    const description = String(it?.description || '').trim()
+    const quantity = Number(it?.quantity)
+    const action = String(it?.action || '').trim()
+    if (action && !RETURN_ACTIONS.includes(action)) throw new Error(`Unknown action: ${action}`)
+    return { description, quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1, action: action || null }
+  }).filter(it => it.description)
+}
+
+// Pulls the writable columns out of a request body, validating as it goes. Returns only
+// the keys that were actually present so a section-by-section save never clobbers
+// another section's fields.
+function parseReturnPatch(body) {
+  const patch = {}
+  for (const f of RETURN_TEXT_FIELDS) {
+    if (body[f] !== undefined) patch[f] = body[f] == null ? null : String(body[f]).trim() || null
+  }
+  for (const f of RETURN_DATE_FIELDS) {
+    if (body[f] === undefined) continue
+    if (body[f] && !isIsoDate(body[f])) throw new Error(`${f} must be a YYYY-MM-DD date`)
+    patch[f] = body[f] || null
+  }
+  if (body.priority !== undefined) {
+    if (!RETURN_PRIORITIES.includes(body.priority)) throw new Error('priority must be urgent, high or normal')
+    patch.priority = body.priority
+  }
+  if (body.reason !== undefined) {
+    if (!RETURN_REASONS.includes(body.reason)) throw new Error('Unknown reason')
+    patch.reason = body.reason
+  }
+  if (body.photos_attached !== undefined) patch.photos_attached = body.photos_attached == null ? null : !!body.photos_attached
+  if (body.job_id !== undefined) {
+    if (body.job_id && !isUuid(body.job_id)) throw new Error('Invalid job_id')
+    patch.job_id = body.job_id || null
+  }
+  const items = validateReturnItems(body.items)
+  if (items !== undefined) patch.items = items
+  // Manual status override: a status name sets it, null hands control back to the automatic rule.
+  if (body.status !== undefined) {
+    if (body.status === null) { patch.status_manual = false }
+    else {
+      if (!RETURN_STATUSES.includes(body.status)) throw new Error('Unknown status')
+      patch.status = body.status
+      patch.status_manual = true
+    }
+  }
+  return patch
+}
+
+// ── Returns notifications (email, per-user opt-in, plus an admin master switch) ──
+
+async function returnsNotificationRecipients(event) {
+  const master = await getConfig('returns_notifications_enabled', false)
+  if (!master) return []
+  const prefs = await getConfig('returns_notification_prefs', {})
+  return [...new Set(Object.values(prefs || {})
+    .filter(p => p?.events?.[event] && isValidEmail(p.email))
+    .map(p => p.email))]
+}
+
+function returnEmailHtml(ret, headline) {
+  const fmt = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+  const priority = ret.priority.charAt(0).toUpperCase() + ret.priority.slice(1)
+  return `
+    <p><strong>${headline}</strong></p>
+    <table cellpadding="4" style="border-collapse:collapse;font-family:sans-serif;font-size:14px">
+      <tr><td><b>Return</b></td><td>${ret.return_number}</td></tr>
+      <tr><td><b>Job</b></td><td>${ret.original_job_number} — ${ret.original_job_name}</td></tr>
+      <tr><td><b>Priority</b></td><td>${priority}</td></tr>
+      <tr><td><b>Status</b></td><td>${RETURN_STATUS_LABELS[effectiveReturnStatus(ret)]}${isReturnOverdue(ret) ? ' — OVERDUE' : ''}</td></tr>
+      <tr><td><b>Reason</b></td><td>${ret.reason}</td></tr>
+      <tr><td><b>Estimated arrival at factory</b></td><td>${fmt(ret.estimated_arrival_date)}</td></tr>
+    </table>
+    <p><a href="${RETURNS_APP_URL}/returns/${ret.id}">Open this return in Harrows Install</a></p>
+  `
+}
+
+// Never allowed to fail the request that triggered it — every caller awaits this inside
+// its own try/catch, same as sendReportNotification.
+async function notifyReturnEvent(event, ret) {
+  const emails = await returnsNotificationRecipients(event)
+  if (!emails.length) return
+  const label = `${ret.return_number} · Job ${ret.original_job_number} ${ret.original_job_name}`
+  const subjects = {
+    new_return: `New return logged — ${label}`,
+    urgent_logged: `URGENT return — ${label}`,
+    freight_booked: `Freight booked — ${label}`,
+    overdue: `OVERDUE return — ${label}`,
+    received: `Received at factory — ${label}`,
+    completed: `Return completed — ${label}`,
+  }
+  const headlines = {
+    new_return: 'A new return has been logged.',
+    urgent_logged: 'An URGENT return has been logged.',
+    freight_booked: 'Freight has been booked for this return.',
+    overdue: 'This return has passed its estimated arrival date and has not been received at the factory.',
+    received: 'This return has been received at the factory.',
+    completed: 'This return has been completed and given its new SO / job number.',
+  }
+  await sendGraphMail({ to: emails.join(', '), subject: subjects[event], html: returnEmailHtml(ret, headlines[event]) })
+}
+async function safeNotifyReturn(event, ret) {
+  try { await notifyReturnEvent(event, ret) } catch (e) { console.error(`return notification (${event}) error`, e.message) }
+}
+
+// ── Returns routes ──────────────────────────────────────────────────────────────
+
+app.get('/api/install/returns/options', requireInstallerOrAdmin, async (req, res) => {
+  try {
+    const [staff, freightCompanies, factoryLocations] = await Promise.all([
+      getConfig('returns_staff_names', DEFAULT_RETURNS_STAFF),
+      getConfig('returns_freight_companies', []),
+      getConfig('returns_factory_locations', []),
+    ])
+    res.json({ staff, freightCompanies, factoryLocations, reasons: RETURN_REASONS, actions: RETURN_ACTIONS })
+  } catch (e) {
+    console.error('returns options error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/api/install/returns', requireInstallerOrAdmin, async (req, res) => {
+  try {
+    let qs = `${RETURN_SELECT}&order=created_at.desc&limit=1000`
+    if (req.query.job_id) {
+      if (!isUuid(String(req.query.job_id))) return res.status(400).json({ error: 'Invalid job_id' })
+      qs += `&job_id=eq.${req.query.job_id}`
+    }
+    const r = await axios.get(sb('returns', qs), { headers: sbH() })
+    const returns = await Promise.all(r.data.map(decorateReturn))
+    res.json({ returns })
+  } catch (e) {
+    console.error('returns list error', JSON.stringify(e.response?.data) || e.message)
+    res.status(500).json({ error: e.response?.data?.message || e.message })
+  }
+})
+
+app.get('/api/install/returns/:id', requireInstallerOrAdmin, async (req, res) => {
+  try {
+    if (!isUuid(req.params.id)) return res.status(400).json({ error: 'Invalid id' })
+    const row = await fetchReturn(req.params.id, true)
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    res.json({ return: await decorateReturn(row) })
+  } catch (e) {
+    console.error('return get error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.post('/api/install/returns', requireInstallerOrAdmin, async (req, res) => {
+  try {
+    const body = req.body || {}
+    let patch
+    try { patch = parseReturnPatch(body) } catch (e) { return res.status(400).json({ error: e.message }) }
+    if (patch.job_id) {
+      // Linked to an install record: fill anything the client left blank from the job card.
+      const jr = await axios.get(sb('job_cards', `id=eq.${patch.job_id}&limit=1`), { headers: sbH() })
+      const job = jr.data?.[0]
+      if (!job) return res.status(400).json({ error: 'That install job no longer exists' })
+      patch.original_job_number = patch.original_job_number || job.job_number
+      patch.original_job_name = patch.original_job_name || job.project_name
+      patch.site_address = patch.site_address || job.address || null
+    }
+    if (!patch.original_job_number || !patch.original_job_name) return res.status(400).json({ error: 'Original job number and job name are required' })
+    if (!patch.reason) return res.status(400).json({ error: 'A reason for the return is required' })
+    if (!patch.pickup_location && patch.site_address) patch.pickup_location = patch.site_address
+    delete patch.status_manual
+    delete patch.status
+    const actor = returnActor(req)
+    const row = { ...patch, priority: patch.priority || 'normal', items: patch.items || [], created_by: actor }
+    row.status = computeReturnStatus(row)
+    const r = await axios.post(sb('returns'), row, { headers: sbH({ Prefer: 'return=representation' }) })
+    const created = r.data[0]
+
+    const sitePhotos = Array.isArray(body.site_photos) ? body.site_photos.filter(p => typeof p === 'string' && p.startsWith('install/')) : []
+    if (sitePhotos.length) {
+      await axios.post(sb('return_photos'), sitePhotos.map(p => ({ return_id: created.id, blob_pathname: p, kind: 'site' })), { headers: sbH() })
+    }
+    await logReturnActivity(created.id, actor, 'created', sitePhotos.length ? { site_photos: { from: 0, to: sitePhotos.length } } : null)
+    await rememberReturnOptions(created)
+
+    const full = await decorateReturn(await fetchReturn(created.id, true))
+    await safeNotifyReturn('new_return', full)
+    if (full.priority === 'urgent') await safeNotifyReturn('urgent_logged', full)
+    if (full.freight_company || full.freight_docket) await safeNotifyReturn('freight_booked', full)
+    res.json({ return: full })
+  } catch (e) {
+    console.error('return create error', JSON.stringify(e.response?.data) || e.message)
+    res.status(500).json({ error: e.response?.data?.message || e.message })
+  }
+})
+
+app.patch('/api/install/returns/:id', requireInstallerOrAdmin, async (req, res) => {
+  try {
+    if (!isUuid(req.params.id)) return res.status(400).json({ error: 'Invalid id' })
+    const current = await fetchReturn(req.params.id)
+    if (!current) return res.status(404).json({ error: 'Not found' })
+    let patch
+    try { patch = parseReturnPatch(req.body || {}) } catch (e) { return res.status(400).json({ error: e.message }) }
+    if (patch.original_job_number === null || patch.original_job_name === null) return res.status(400).json({ error: 'Original job number and job name are required' })
+
+    const changes = {}
+    for (const [k, v] of Object.entries(patch)) {
+      const before = current[k] ?? null
+      if (JSON.stringify(before) !== JSON.stringify(v)) changes[k] = { from: before, to: v }
+    }
+    if (!Object.keys(changes).length) return res.json({ return: await decorateReturn(await fetchReturn(req.params.id, true)), changed: false })
+
+    const merged = { ...current, ...patch }
+    if (!merged.status_manual) patch.status = computeReturnStatus(merged)
+    patch.updated_at = new Date().toISOString()
+    await axios.patch(sb('returns', `id=eq.${req.params.id}`), patch, { headers: sbH() })
+
+    const actor = returnActor(req)
+    await logReturnActivity(req.params.id, actor, changes.status_manual || changes.status ? 'status_set' : 'updated', changes)
+    await rememberReturnOptions(patch)
+
+    const full = await decorateReturn(await fetchReturn(req.params.id, true))
+    const wasBooked = !!(current.freight_company || current.freight_docket)
+    const nowBooked = !!(full.freight_company || full.freight_docket)
+    const docketAdded = !current.freight_docket && !!full.freight_docket
+    if ((!wasBooked && nowBooked) || docketAdded) await safeNotifyReturn('freight_booked', full)
+    if (!current.date_received && full.date_received) await safeNotifyReturn('received', full)
+    if (current.priority !== 'urgent' && full.priority === 'urgent') await safeNotifyReturn('urgent_logged', full)
+    res.json({ return: full, changed: true })
+  } catch (e) {
+    console.error('return update error', JSON.stringify(e.response?.data) || e.message)
+    res.status(500).json({ error: e.response?.data?.message || e.message })
+  }
+})
+
+app.post('/api/install/returns/:id/complete', requireInstallerOrAdmin, async (req, res) => {
+  try {
+    if (!isUuid(req.params.id)) return res.status(400).json({ error: 'Invalid id' })
+    const current = await fetchReturn(req.params.id)
+    if (!current) return res.status(404).json({ error: 'Not found' })
+    const newSo = String(req.body?.new_so_number ?? current.new_so_number ?? '').trim()
+    if (!newSo) return res.status(400).json({ error: 'A new SO / job number is required to complete a return' })
+    const actor = returnActor(req)
+    const patch = { new_so_number: newSo, completed_at: new Date().toISOString(), completed_by: actor, status: 'completed', status_manual: false, updated_at: new Date().toISOString() }
+    await axios.patch(sb('returns', `id=eq.${req.params.id}`), patch, { headers: sbH() })
+    await logReturnActivity(req.params.id, actor, 'completed', { new_so_number: { from: current.new_so_number, to: newSo } })
+    const full = await decorateReturn(await fetchReturn(req.params.id, true))
+    await safeNotifyReturn('completed', full)
+    res.json({ return: full })
+  } catch (e) {
+    console.error('return complete error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.post('/api/install/returns/:id/reopen', requireInstallerOrAdmin, async (req, res) => {
+  try {
+    if (!isUuid(req.params.id)) return res.status(400).json({ error: 'Invalid id' })
+    const current = await fetchReturn(req.params.id)
+    if (!current) return res.status(404).json({ error: 'Not found' })
+    const reopened = { ...current, completed_at: null, completed_by: null }
+    await axios.patch(sb('returns', `id=eq.${req.params.id}`), {
+      completed_at: null, completed_by: null, status: computeReturnStatus(reopened), status_manual: false, updated_at: new Date().toISOString(),
+    }, { headers: sbH() })
+    await logReturnActivity(req.params.id, returnActor(req), 'reopened')
+    res.json({ return: await decorateReturn(await fetchReturn(req.params.id, true)) })
+  } catch (e) {
+    console.error('return reopen error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.delete('/api/install/returns/:id', requireAdmin, async (req, res) => {
+  try {
+    if (!isUuid(req.params.id)) return res.status(400).json({ error: 'Invalid id' })
+    await axios.delete(sb('returns', `id=eq.${req.params.id}`), { headers: sbH() })
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('return delete error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// Photos: "site" (taken when the return is logged) and "factory" (taken on arrival).
+app.post('/api/install/returns/:id/photos', requireInstallerOrAdmin, async (req, res) => {
+  try {
+    if (!isUuid(req.params.id)) return res.status(400).json({ error: 'Invalid id' })
+    const kind = req.body?.kind === 'factory' ? 'factory' : 'site'
+    const pathnames = (Array.isArray(req.body?.pathnames) ? req.body.pathnames : []).filter(p => typeof p === 'string' && p.startsWith('install/'))
+    if (!pathnames.length) return res.status(400).json({ error: 'pathnames required' })
+    await axios.post(sb('return_photos'), pathnames.map(p => ({ return_id: req.params.id, blob_pathname: p, kind })), { headers: sbH() })
+    await axios.patch(sb('returns', `id=eq.${req.params.id}`), { updated_at: new Date().toISOString(), ...(kind === 'site' ? { photos_attached: true } : {}) }, { headers: sbH() })
+    await logReturnActivity(req.params.id, returnActor(req), 'photo_added', { [`${kind}_photos`]: { from: null, to: pathnames.length } })
+    res.json({ return: await decorateReturn(await fetchReturn(req.params.id, true)) })
+  } catch (e) {
+    console.error('return photo add error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.delete('/api/install/returns/:id/photos/:photoId', requireInstallerOrAdmin, async (req, res) => {
+  try {
+    if (!isUuid(req.params.id) || !isUuid(req.params.photoId)) return res.status(400).json({ error: 'Invalid id' })
+    await axios.delete(sb('return_photos', `id=eq.${req.params.photoId}&return_id=eq.${req.params.id}`), { headers: sbH() })
+    await logReturnActivity(req.params.id, returnActor(req), 'photo_removed')
+    res.json({ return: await decorateReturn(await fetchReturn(req.params.id, true)) })
+  } catch (e) {
+    console.error('return photo delete error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── "Receive an item": AI photo match against open returns' site photos ──────────
+// Compares a photo of what just arrived at the factory against the first site photo of
+// every in-progress return that hasn't been received yet, and returns the top 3 likely
+// matches with a confidence. Suggestion only — the user always confirms, nothing is
+// written here.
+
+const RETURN_MATCH_SCHEMA = {
+  type: 'object',
+  properties: {
+    matches: {
+      type: 'array',
+      maxItems: 3,
+      items: {
+        type: 'object',
+        properties: {
+          candidate: { type: 'integer', description: 'The candidate number as labelled' },
+          confidence: { type: 'integer', minimum: 0, maximum: 100 },
+          reason: { type: 'string', description: 'One short sentence on why this could be the same item' },
+        },
+        required: ['candidate', 'confidence', 'reason'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['matches'],
+  additionalProperties: false,
+}
+const RETURN_MATCH_MAX_CANDIDATES = 25
+
+async function fetchBlobBase64(pathname) {
+  let url = await signedPhotoUrl(pathname)
+  if (!url) {
+    // Wildcard token unavailable — fall back to a per-pathname token (same as /photos/url).
+    const signedToken = await issueSignedToken({ pathname, operations: ['get'], validUntil: Date.now() + 10 * 60 * 1000 })
+    url = (await presignUrl(signedToken, { pathname, operation: 'get', access: 'private' })).presignedUrl
+  }
+  const r = await axios.get(url, { responseType: 'arraybuffer', timeout: 10000 })
+  const type = String(r.headers['content-type'] || 'image/jpeg').split(';')[0]
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(type)) return null
+  return { mediaType: type, data: Buffer.from(r.data).toString('base64') }
+}
+
+app.post('/api/install/returns/match', requireInstallerOrAdmin, async (req, res) => {
+  try {
+    const { mediaType, data } = req.body || {}
+    if (!mediaType || !data || !String(mediaType).startsWith('image/')) return res.status(400).json({ error: 'An image is required' })
+
+    const r = await axios.get(sb('returns', `${RETURN_SELECT}&completed_at=is.null&date_received=is.null&order=created_at.desc&limit=200`), { headers: sbH() })
+    const candidates = r.data.filter(row => (row.photos || []).some(p => p.kind === 'site')).slice(0, RETURN_MATCH_MAX_CANDIDATES)
+    if (!candidates.length) return res.json({ matches: [], candidateCount: 0 })
+
+    const content = [
+      { type: 'text', text: 'PHOTO OF THE ITEM THAT HAS JUST ARRIVED AT THE FACTORY:' },
+      { type: 'image', source: { type: 'base64', media_type: mediaType, data } },
+    ]
+    const numbered = []
+    for (const row of candidates) {
+      const sitePhoto = row.photos.find(p => p.kind === 'site')
+      const img = await fetchBlobBase64(sitePhoto.blob_pathname).catch(() => null)
+      if (!img) continue
+      numbered.push(row)
+      const n = numbered.length
+      const items = (row.items || []).map(it => `${it.quantity}× ${it.description}`).join(', ') || 'no item details'
+      content.push({ type: 'text', text: `CANDIDATE ${n}: ${row.return_number} — Job ${row.original_job_number} ${row.original_job_name}. Reason: ${row.reason}. Items: ${items}. ${row.issue_description ? 'Issue: ' + row.issue_description : ''}` })
+      content.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.data } })
+    }
+    if (!numbered.length) return res.json({ matches: [], candidateCount: 0 })
+    content.push({ type: 'text', text: 'These are furniture items being returned to a factory. Compare the arrived item photo against each candidate\'s site photo (taken when the return was logged, possibly from a different angle, lighting or with packaging). Judge by the type of furniture, shape, colour, fabric/material, visible damage and the item descriptions. Return up to 3 candidates most likely to be the same physical item, highest confidence first, with an honest confidence from 0 to 100. If nothing plausibly matches, return an empty list.' })
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-5-5',
+      max_tokens: 600,
+      output_config: { format: { type: 'json_schema', schema: RETURN_MATCH_SCHEMA } },
+      messages: [{ role: 'user', content }],
+    })
+    if (response.stop_reason === 'refusal') return res.status(422).json({ error: 'Could not compare this photo' })
+    const textBlock = response.content.find(b => b.type === 'text')
+    const parsed = JSON.parse(textBlock?.text || '{"matches":[]}')
+    const seen = new Set()
+    const matches = []
+    for (const m of (parsed.matches || []).sort((a, b) => b.confidence - a.confidence)) {
+      const row = numbered[m.candidate - 1]
+      if (!row || seen.has(row.id)) continue
+      seen.add(row.id)
+      matches.push({ confidence: Math.max(0, Math.min(100, Math.round(m.confidence))), reason: m.reason, return: await decorateReturn(row) })
+      if (matches.length === 3) break
+    }
+    res.json({ matches, candidateCount: numbered.length })
+  } catch (e) {
+    console.error('return match error', e.message)
+    if (e instanceof Anthropic.BadRequestError) return res.status(400).json({ error: 'Could not read this photo — try again' })
+    res.status(500).json({ error: 'Photo matching failed — use "Not listed / search manually"' })
+  }
+})
+
+// ── Returns notification settings ───────────────────────────────────────────────
+// One pref record per person, keyed by their Clerk user id or installer id. All events
+// default off; the admin-only master switch defaults off too.
+
+const returnsPrefKey = req => req.installer ? `installer:${req.installer.id}` : `clerk:${req.clerkUserId}`
+
+app.get('/api/install/returns-notifications', requireInstallerOrAdmin, async (req, res) => {
+  try {
+    const [master, prefs] = await Promise.all([
+      getConfig('returns_notifications_enabled', false),
+      getConfig('returns_notification_prefs', {}),
+    ])
+    const mine = prefs?.[returnsPrefKey(req)] || null
+    let defaultEmail = ''
+    if (req.installer) {
+      const ir = await axios.get(sb('installers', `id=eq.${req.installer.id}&select=email&limit=1`), { headers: sbH() })
+      defaultEmail = ir.data?.[0]?.email || ''
+    } else {
+      defaultEmail = req.clerkUser?.email_addresses?.[0]?.email_address || ''
+    }
+    res.json({
+      master: !!master,
+      canManageMaster: !req.installer,
+      events: RETURN_EVENTS,
+      email: mine?.email || defaultEmail,
+      prefs: Object.fromEntries(RETURN_EVENTS.map(ev => [ev, !!mine?.events?.[ev]])),
+    })
+  } catch (e) {
+    console.error('returns notifications get error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.patch('/api/install/returns-notifications', requireInstallerOrAdmin, async (req, res) => {
+  try {
+    const { email, prefs, master } = req.body || {}
+    if (master !== undefined) {
+      if (req.installer) return res.status(403).json({ error: 'Only office admins can change the master switch' })
+      await setConfig('returns_notifications_enabled', !!master, req.clerkUserId)
+    }
+    if (prefs !== undefined || email !== undefined) {
+      const all = await getConfig('returns_notification_prefs', {})
+      const key = returnsPrefKey(req)
+      const cur = all[key] || { events: {} }
+      const nextEmail = email !== undefined ? String(email || '').trim() : (cur.email || '')
+      const nextEvents = { ...cur.events }
+      if (prefs && typeof prefs === 'object') for (const ev of RETURN_EVENTS) if (prefs[ev] !== undefined) nextEvents[ev] = !!prefs[ev]
+      if (Object.values(nextEvents).some(Boolean) && !isValidEmail(nextEmail)) return res.status(400).json({ error: 'Enter a valid email address to receive notifications' })
+      all[key] = { name: returnActor(req) || '', email: nextEmail, events: nextEvents, updatedAt: new Date().toISOString() }
+      await setConfig('returns_notification_prefs', all, key)
+    }
+    res.json({ ok: true })
+  } catch (e) {
+    console.error('returns notifications update error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// Daily overdue sweep (Vercel cron, see vercel.json) — emails once per return per
+// estimated-arrival date, so a date pushed out and missed again is flagged again.
+function requireCron(req, res, next) {
+  const secret = process.env.CRON_SECRET
+  if (!secret) return res.status(503).json({ error: 'CRON_SECRET not configured' })
+  const raw = (req.headers.authorization || '').replace('Bearer ', '').trim()
+  if (raw === secret || req.query.secret === secret) return next()
+  res.status(401).json({ error: 'Unauthorized' })
+}
+
+app.get('/api/install/returns-overdue-check', requireCron, async (req, res) => {
+  try {
+    const r = await axios.get(sb('returns', `${RETURN_SELECT}&completed_at=is.null&date_received=is.null&estimated_arrival_date=lt.${nzToday()}&limit=500`), { headers: sbH() })
+    const due = r.data.filter(row => row.overdue_notified_for !== row.estimated_arrival_date)
+    let sent = 0
+    for (const row of due) {
+      try {
+        await notifyReturnEvent('overdue', row)
+        await axios.patch(sb('returns', `id=eq.${row.id}`), { overdue_notified_for: row.estimated_arrival_date }, { headers: sbH() })
+        sent++
+      } catch (e) {
+        console.error('overdue notify error', row.return_number, e.message)
+      }
+    }
+    res.json({ overdue: r.data.length, notified: sent })
+  } catch (e) {
+    console.error('overdue check error', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
 export default app

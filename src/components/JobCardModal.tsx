@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import axios from 'axios'
-import type { JobCard } from '../types'
+import type { JobCard, ReturnRecord } from '../types'
+import { fmtDate, priorityBadge, priorityLabel, statusLabel } from '../lib/returns'
 
 const emptyForm = {
   jobNumber: '', projectName: '', address: '',
@@ -77,7 +78,14 @@ export default function JobCardModal({ job, canDelete, onClose, onSaved, onDelet
   const [scanning, setScanning] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [returns, setReturns] = useState<ReturnRecord[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Returns logged against this install record (Returns tab, "Pick an install job").
+  useEffect(() => {
+    if (!job) return
+    axios.get('/api/install/returns', { params: { job_id: job.id } }).then(r => setReturns(r.data.returns)).catch(() => {})
+  }, [job])
 
   const set = (field: keyof Form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm(f => ({ ...f, [field]: e.target.value }))
@@ -174,6 +182,20 @@ export default function JobCardModal({ job, canDelete, onClose, onSaved, onDelet
               <Field label="Email" value={form.salespersonEmail} onChange={set('salespersonEmail')} />
             </div>
           </fieldset>
+
+          {job && returns.length > 0 && (
+            <fieldset className="border border-gray-100 rounded-lg p-3 space-y-1.5">
+              <legend className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-1">Returns on this job</legend>
+              {returns.map(r => (
+                <a key={r.id} href={`/returns/${r.id}`} className="flex items-center gap-2 text-xs hover:bg-gray-50 rounded px-1 py-1">
+                  <span className="font-mono font-bold bg-gray-900 text-white px-1.5 py-0.5 rounded">{r.return_number}</span>
+                  <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full ${priorityBadge(r.priority)}`}>{priorityLabel(r.priority)}</span>
+                  <span className="text-gray-700 truncate">{r.reason}</span>
+                  <span className="ml-auto text-gray-400 shrink-0">{statusLabel(r.status)}{r.estimated_arrival_date && r.status !== 'completed' ? ` · ETA ${fmtDate(r.estimated_arrival_date)}` : ''}</span>
+                </a>
+              ))}
+            </fieldset>
+          )}
 
           {error && <p className="text-xs text-red-500">{error}</p>}
         </div>

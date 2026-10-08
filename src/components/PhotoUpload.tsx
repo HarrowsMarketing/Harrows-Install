@@ -7,9 +7,26 @@ interface Props {
   reportKey: string // a client-generated id used to namespace this report's photo pathnames before the report itself has an id
   pathnames: string[]
   onChange: (pathnames: string[]) => void
+  hideList?: boolean // caller renders its own thumbnails (Returns) instead of the filename chips below
+  compact?: boolean
 }
 
-export default function PhotoUpload({ reportKey, pathnames, onChange }: Props) {
+// Resize + direct-to-Blob upload of one photo, returning its pathname. Shared with the
+// Returns feature, which uploads outside this component (e.g. the "Receive an item" flow).
+export async function uploadPhotoFile(original: File, keyPrefix: string, headers?: Record<string, string>): Promise<string> {
+  const hdrs = headers ?? await getAuthHeaders()
+  const file = await resizeForUpload(original)
+  const pathname = `install/${keyPrefix}/${Date.now()}-${file.name}`
+  const blob = await upload(pathname, file, {
+    access: 'private',
+    handleUploadUrl: '/api/install/photos/upload-token',
+    multipart: true,
+    headers: hdrs,
+  })
+  return blob.pathname
+}
+
+export default function PhotoUpload({ reportKey, pathnames, onChange, hideList, compact }: Props) {
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const cameraRef = useRef<HTMLInputElement>(null)
@@ -31,15 +48,7 @@ export default function PhotoUpload({ reportKey, pathnames, onChange }: Props) {
       const headers = await getAuthHeaders()
       const newPathnames: string[] = []
       for (const original of fileArray) {
-        const file = await resizeForUpload(original)
-        const pathname = `install/${reportKey}/${Date.now()}-${file.name}`
-        const blob = await upload(pathname, file, {
-          access: 'private',
-          handleUploadUrl: '/api/install/photos/upload-token',
-          multipart: true,
-          headers,
-        })
-        newPathnames.push(blob.pathname)
+        newPathnames.push(await uploadPhotoFile(original, reportKey, headers))
       }
       onChange([...pathnames, ...newPathnames])
     } catch (e: any) {
@@ -58,7 +67,7 @@ export default function PhotoUpload({ reportKey, pathnames, onChange }: Props) {
           type="button"
           onClick={() => cameraRef.current?.click()}
           disabled={uploading}
-          className="flex flex-col items-center justify-center gap-1.5 border-2 border-dashed border-gray-200 rounded-lg py-6 text-gray-500 hover:border-gray-300 disabled:opacity-50 transition-colors"
+          className={`flex flex-col items-center justify-center gap-1.5 border-2 border-dashed border-gray-200 rounded-lg ${compact ? 'py-3' : 'py-6'} text-gray-500 hover:border-gray-300 disabled:opacity-50 transition-colors`}
         >
           <CameraIcon />
           <span className="text-sm">Camera</span>
@@ -67,7 +76,7 @@ export default function PhotoUpload({ reportKey, pathnames, onChange }: Props) {
           type="button"
           onClick={() => galleryRef.current?.click()}
           disabled={uploading}
-          className="flex flex-col items-center justify-center gap-1.5 border-2 border-dashed border-gray-200 rounded-lg py-6 text-gray-500 hover:border-gray-300 disabled:opacity-50 transition-colors"
+          className={`flex flex-col items-center justify-center gap-1.5 border-2 border-dashed border-gray-200 rounded-lg ${compact ? 'py-3' : 'py-6'} text-gray-500 hover:border-gray-300 disabled:opacity-50 transition-colors`}
         >
           <GalleryIcon />
           <span className="text-sm">Gallery</span>
@@ -81,7 +90,7 @@ export default function PhotoUpload({ reportKey, pathnames, onChange }: Props) {
       {uploading && <p className="text-xs text-gray-400 mt-2">Uploading...</p>}
       {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
 
-      {pathnames.length > 0 && (
+      {!hideList && pathnames.length > 0 && (
         <div className="flex flex-wrap gap-2 mt-3">
           {pathnames.map((p, i) => (
             <div key={p} className="relative bg-gray-100 rounded-lg px-3 py-2 text-xs text-gray-600">

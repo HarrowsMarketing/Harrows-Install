@@ -94,3 +94,84 @@ export interface SigninLogEntry {
   installer_name: string
   signed_in_at: string
 }
+
+// ── Returns ────────────────────────────────────────────────────────────────────
+
+export type ReturnPriority = 'urgent' | 'high' | 'normal'
+export type ReturnStatus = 'logged' | 'freight_booked' | 'in_transit' | 'received' | 'completed'
+export type ReturnPhotoKind = 'site' | 'factory'
+
+export interface ReturnItem {
+  description: string
+  quantity: number
+  action: string | null
+}
+
+export interface ReturnPhoto {
+  id: string
+  blob_pathname: string
+  kind: ReturnPhotoKind
+  url: string | null // presigned by the API; null means fall back to /api/install/photos/url
+  created_at: string
+}
+
+export interface ReturnActivity {
+  id: number
+  actor: string | null
+  action: string
+  changes: Record<string, { from: unknown; to: unknown }> | null
+  created_at: string
+}
+
+export interface ReturnRecord {
+  id: string
+  return_number: string
+  job_id: string | null
+  original_job_number: string
+  original_job_name: string
+  site_address: string | null
+  new_so_number: string | null
+  required_by: string | null
+  priority: ReturnPriority
+  reason: string
+  issue_description: string | null
+  photos_attached: boolean | null
+  items: ReturnItem[]
+  requested_by: string | null
+  freight_company: string | null
+  freight_docket: string | null
+  pickup_location: string | null
+  expected_pickup_date: string | null
+  estimated_arrival_date: string | null
+  received_by: string | null
+  date_received: string | null
+  factory_location: string | null
+  arrival_damage: string | null
+  responsible_person: string | null
+  status: ReturnStatus       // effective (manual override if set, otherwise automatic)
+  status_auto: ReturnStatus  // what the automatic rule says right now
+  status_manual: boolean
+  overdue: boolean
+  completed_at: string | null
+  completed_by: string | null
+  created_at: string
+  created_by: string | null
+  updated_at: string
+  job: Pick<JobCard, 'id' | 'job_number' | 'project_name' | 'address'> | null
+  photos: ReturnPhoto[]
+  activity?: ReturnActivity[]
+}
+
+export interface ReturnOptions {
+  staff: string[]
+  freightCompanies: string[]
+  factoryLocations: string[]
+  reasons: string[]
+  actions: string[]
+}
+
+export interface ReturnMatch {
+  confidence: number
+  reason: string
+  return: ReturnRecord
+}

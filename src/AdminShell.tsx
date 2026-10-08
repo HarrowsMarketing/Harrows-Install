@@ -5,14 +5,19 @@ import JobCardsTab from './tabs/JobCardsTab'
 import PeopleTab from './tabs/PeopleTab'
 import ReportsTab from './tabs/ReportsTab'
 import ActivityTab from './tabs/ActivityTab'
+import ReturnsTab from './tabs/ReturnsTab'
 import SettingsModal from './components/SettingsModal'
 import { countNewReports, getLastSeen, markReportsSeen } from './utils/reportsBadge'
+import { clearReturnDeepLink, getReturnDeepLink } from './lib/returns'
 
-const TABS = ['Job Cards', 'Reports', 'People', 'Activity'] as const
+const TABS = ['Job Cards', 'Reports', 'Returns', 'People', 'Activity'] as const
 type Tab = typeof TABS[number]
 
 export default function AdminShell() {
-  const [tab, setTab] = useState<Tab>('Job Cards')
+  // A QR tag / notification email lands on /returns/<id> (or /admin/returns/<id>) — open
+  // straight onto that return rather than the default tab.
+  const [deepLink] = useState(() => getReturnDeepLink())
+  const [tab, setTab] = useState<Tab>(deepLink ? 'Returns' : 'Job Cards')
   const [showSettings, setShowSettings] = useState(false)
   const [newReports, setNewReports] = useState(0)
 
@@ -65,6 +70,7 @@ export default function AdminShell() {
       <main className="max-w-5xl mx-auto px-4 py-6">
         {tab === 'Job Cards' && <JobCardsTab />}
         {tab === 'Reports' && <ReportsTab />}
+        {tab === 'Returns' && <ReturnsTab isAdmin deepLink={deepLink} onDeepLinkConsumed={() => clearReturnDeepLink('/admin')} />}
         {tab === 'People' && <PeopleTab />}
         {tab === 'Activity' && <ActivityTab />}
       </main>

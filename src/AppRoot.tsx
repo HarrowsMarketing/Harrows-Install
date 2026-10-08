@@ -2,6 +2,7 @@ import { SignedIn, SignedOut } from '@clerk/clerk-react'
 import InstallerApp from './InstallerApp'
 import AdminShell from './AdminShell'
 import AdminLoginPage from './AdminLoginPage'
+import { getInstallerToken } from './utils/installerSession'
 
 export default function AppRoot() {
   // Installers are the default landing experience (most traffic is the install crew
@@ -14,6 +15,19 @@ export default function AppRoot() {
       <>
         <SignedIn><AdminShell /></SignedIn>
         <SignedOut><AdminLoginPage /></SignedOut>
+      </>
+    )
+  }
+
+  // /returns/<id> is the link printed on return tags (QR) and in notification emails, and
+  // either kind of user may follow it: a PIN session wins if one exists on this device,
+  // otherwise a signed-in office user gets the admin shell, otherwise the PIN screen
+  // (whose "office staff" link carries the return through to /admin/returns/<id>).
+  if (path.startsWith('/returns/') && !getInstallerToken()) {
+    return (
+      <>
+        <SignedIn><AdminShell /></SignedIn>
+        <SignedOut><InstallerApp /></SignedOut>
       </>
     )
   }

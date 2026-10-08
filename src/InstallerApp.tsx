@@ -6,7 +6,9 @@ import NewReportForm from './components/NewReportForm'
 import InstallerJobCards from './components/InstallerJobCards'
 import InstallerReportsView from './components/InstallerReportsView'
 import MyProfileModal from './components/MyProfileModal'
+import ReturnsTab from './tabs/ReturnsTab'
 import { countNewReports, getLastSeen, markReportsSeen } from './utils/reportsBadge'
+import { clearReturnDeepLink, getReturnDeepLink } from './lib/returns'
 
 const DEFAULT_VISIBLE_FIELDS: VisibleFields = { products: true, issues_solutions: true, photos: true }
 
@@ -54,17 +56,20 @@ function PinEntry({ onSignedIn }: { onSignedIn: (installer: InstallerInfo) => vo
           {loading ? 'Checking...' : 'Continue'}
         </button>
       </div>
-      <a href="/admin" className="mt-8 text-xs text-gray-400 hover:text-gray-600 transition-colors">Office staff? Sign in here &rarr;</a>
+      <a href={`/admin${getReturnDeepLink() ? `/returns/${getReturnDeepLink()!.id}${window.location.search}` : ''}`} className="mt-8 text-xs text-gray-400 hover:text-gray-600 transition-colors">Office staff? Sign in here &rarr;</a>
     </div>
   )
 }
 
-const TABS = ['New Report', 'Job Cards', 'My Reports'] as const
+const TABS = ['New Report', 'Job Cards', 'My Reports', 'Returns'] as const
 type Tab = typeof TABS[number]
 
 export default function InstallerApp() {
   const [installer, setInstaller] = useState<InstallerInfo | null>(() => (getInstallerToken() ? getInstallerInfo() : null))
-  const [tab, setTab] = useState<Tab>('New Report')
+  // Scanning a return tag's QR (or tapping a notification email) lands on /returns/<id> —
+  // open the Returns tab straight onto that return once signed in.
+  const [deepLink] = useState(() => getReturnDeepLink())
+  const [tab, setTab] = useState<Tab>(deepLink ? 'Returns' : 'New Report')
   const [visibleFields, setVisibleFields] = useState<VisibleFields>(DEFAULT_VISIBLE_FIELDS)
   const [reportsRefreshKey, setReportsRefreshKey] = useState(0)
   const [showProfile, setShowProfile] = useState(false)
@@ -141,6 +146,7 @@ export default function InstallerApp() {
         )}
         {tab === 'Job Cards' && <InstallerJobCards />}
         {tab === 'My Reports' && <InstallerReportsView refreshKey={reportsRefreshKey} installer={installer} visibleFields={visibleFields} />}
+        {tab === 'Returns' && <ReturnsTab isAdmin={false} deepLink={deepLink} onDeepLinkConsumed={() => clearReturnDeepLink('/report')} />}
       </main>
 
       {showProfile && (
