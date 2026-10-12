@@ -855,7 +855,12 @@ const RETURN_TEXT_FIELDS = [
   'received_by', 'factory_location', 'arrival_damage', 'responsible_person',
 ]
 const RETURN_DATE_FIELDS = ['required_by', 'expected_pickup_date', 'estimated_arrival_date', 'date_received']
-const RETURN_SELECT = 'select=*,job:job_cards(id,job_number,project_name,address),photos:return_photos(id,blob_pathname,kind,created_at)&photos.order=created_at.asc'
+// Field list and embedded-resource order are kept separate on purpose: anything appended to the
+// select must go after the fields, never after `photos.order=…` (a join appended there lands inside
+// the order value and PostgREST 400s with "failed to parse order").
+const RETURN_SELECT_FIELDS = '*,job:job_cards(id,job_number,project_name,address),photos:return_photos(id,blob_pathname,kind,created_at)'
+const RETURN_SELECT = `select=${RETURN_SELECT_FIELDS}&photos.order=created_at.asc`
+const RETURN_SELECT_WITH_ACTIVITY = `select=${RETURN_SELECT_FIELDS},activity:return_activity(id,actor,action,changes,created_at)&photos.order=created_at.asc&activity.order=created_at.desc`
 
 // Dates in this app are NZ calendar days (the factory is in Timaru), not UTC.
 const nzToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })
@@ -897,7 +902,7 @@ async function decorateReturn(row) {
 }
 
 async function fetchReturn(id, withActivity = false) {
-  const select = withActivity ? `${RETURN_SELECT},activity:return_activity(id,actor,action,changes,created_at)&activity.order=created_at.desc` : RETURN_SELECT
+  const select = withActivity ? RETURN_SELECT_WITH_ACTIVITY : RETURN_SELECT
   const r = await axios.get(sb('returns', `${select}&id=eq.${id}&limit=1`), { headers: sbH() })
   return r.data?.[0] || null
 }
