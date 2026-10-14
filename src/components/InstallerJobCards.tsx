@@ -3,10 +3,15 @@ import axios from 'axios'
 import type { JobCard } from '../types'
 import JobCardModal from './JobCardModal'
 
-export default function InstallerJobCards() {
+interface Props {
+  onStartReport: (job: JobCard) => void
+}
+
+export default function InstallerJobCards({ onStartReport }: Props) {
   const [jobs, setJobs] = useState<JobCard[]>([])
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [justAdded, setJustAdded] = useState<JobCard | null>(null)
   const [error, setError] = useState('')
 
   const load = async (q = '') => {
@@ -29,6 +34,22 @@ export default function InstallerJobCards() {
   return (
     <div>
       <h2 className="text-base font-bold text-gray-900 mb-3">Job cards</h2>
+      <button onClick={() => setShowAdd(true)} className="w-full py-2.5 text-sm font-semibold bg-harrows-yellow text-gray-900 rounded-lg mb-3">
+        + Scan / add a job card
+      </button>
+      {justAdded && (
+        <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 mb-3">
+          <p className="text-sm text-green-800">
+            <span className="font-semibold">Job {justAdded.job_number}</span> added — {justAdded.project_name}
+          </p>
+          <div className="flex gap-2 mt-2">
+            <button onClick={() => onStartReport(justAdded)} className="px-3 py-1.5 text-xs font-semibold bg-gray-900 text-white rounded-lg">
+              Start a report for this job
+            </button>
+            <button onClick={() => setJustAdded(null)} className="px-3 py-1.5 text-xs text-green-700">Dismiss</button>
+          </div>
+        </div>
+      )}
       <input
         value={search}
         onChange={e => setSearch(e.target.value)}
@@ -47,14 +68,10 @@ export default function InstallerJobCards() {
         {jobs.length === 0 && <p className="text-sm text-gray-400">No job cards found.</p>}
       </div>
 
-      <button onClick={() => setShowAdd(true)} className="w-full py-2.5 text-sm font-semibold bg-harrows-yellow text-gray-900 rounded-lg">
-        + Scan / add a job card
-      </button>
-
       {showAdd && (
         <JobCardModal
           onClose={() => setShowAdd(false)}
-          onSaved={job => { setShowAdd(false); if (job) setJobs(prev => [job, ...prev]) }}
+          onSaved={job => { setShowAdd(false); if (job) { setJobs(prev => [job, ...prev]); setJustAdded(job) } }}
         />
       )}
     </div>

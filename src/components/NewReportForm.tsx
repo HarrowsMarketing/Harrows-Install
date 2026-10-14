@@ -3,6 +3,7 @@ import axios from 'axios'
 import type { EodReport, JobCard, VisibleFields } from '../types'
 import type { InstallerInfo } from '../utils/installerSession'
 import PhotoUpload from './PhotoUpload'
+import JobCardModal from './JobCardModal'
 
 function todayStr() {
   return new Date().toISOString().split('T')[0]
@@ -13,14 +14,17 @@ const PERCENT_STEPS = [0, 25, 50, 75, 100]
 interface Props {
   installer: InstallerInfo
   visibleFields: VisibleFields
+  /** Pre-select a job (e.g. a card just added on the Job Cards tab). */
+  initialJob?: JobCard | null
   onSubmitted: () => void
 }
 
-export default function NewReportForm({ installer, visibleFields, onSubmitted }: Props) {
+export default function NewReportForm({ installer, visibleFields, initialJob = null, onSubmitted }: Props) {
   const [reportKey] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
   const [jobSearch, setJobSearch] = useState('')
   const [jobResults, setJobResults] = useState<JobCard[]>([])
-  const [job, setJob] = useState<JobCard | null>(null)
+  const [job, setJob] = useState<JobCard | null>(initialJob)
+  const [showAddJob, setShowAddJob] = useState(false)
   const [jobHistory, setJobHistory] = useState<EodReport[]>([])
   const [date, setDate] = useState(todayStr())
   const [percentComplete, setPercentComplete] = useState(0)
@@ -36,6 +40,10 @@ export default function NewReportForm({ installer, visibleFields, onSubmitted }:
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+
+  useEffect(() => {
+    if (initialJob) setJob(initialJob)
+  }, [initialJob])
 
   useEffect(() => {
     if (!jobSearch.trim()) { setJobResults([]); return }
@@ -141,9 +149,19 @@ export default function NewReportForm({ installer, visibleFields, onSubmitted }:
                 ))}
               </div>
             )}
+            <button type="button" onClick={() => setShowAddJob(true)} className="mt-2 text-xs font-semibold text-gray-600 hover:text-gray-900">
+              Can't find it? + Scan / add a new job card
+            </button>
           </div>
         )}
       </section>
+
+      {showAddJob && (
+        <JobCardModal
+          onClose={() => setShowAddJob(false)}
+          onSaved={j => { setShowAddJob(false); if (j) { setJob(j); setJobResults([]); setJobSearch('') } }}
+        />
+      )}
 
       {jobHistory.length > 0 && (
         <section className="bg-amber-50 border border-amber-200 rounded-xl p-4">
